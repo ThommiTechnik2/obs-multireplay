@@ -557,6 +557,11 @@ QWidget *MultiReplayDock::buildToolbar()
 	// strip so the tabs scroll under it, not past it.
 	bankRow_ = new QWidget(box);
 	bankRow_->setObjectName(QStringLiteral("mrToolbar"));
+	// TB .tb-tabs{max-width:300px} (T1, revoking the §9b elastic strip): the
+	// strip shows ~5 banks and scrolls inside past that; the row's leftover
+	// goes to the stretch AFTER bankRow_ (below), between the banks and the
+	// tools — never into more tabs. + its gap ride inside the cap.
+	bankRow_->setMaximumWidth(kBankStripMaxW + kAddBankSide + kBankTabGap);
 	auto *tr = new QHBoxLayout(bankRow_);
 	tr->setContentsMargins(0, 0, 0, 0);
 	tr->setSpacing(kBankTabGap); // .tb-tabs{gap:3px}
@@ -587,6 +592,18 @@ QWidget *MultiReplayDock::buildToolbar()
 		poll();
 	});
 	tr->addWidget(addBankBtn_, 0);
+
+	// TB .fade{width:24px} (T1): the strip ends in a fade, not in a cut
+	// tab. A child of the tabs at their right end (never in the layout:
+	// it overlays), transparent to the mouse, painted by the sheet so the
+	// theme follows for free. Created before any overflow exists, so the
+	// lazily-created scroller arrows stack above it.
+	bankFade_ = new QWidget(listTabs_);
+	bankFade_->setObjectName(QStringLiteral("mrBankFade"));
+	bankFade_->setAttribute(Qt::WA_TransparentForMouseEvents);
+	bankFade_->setFixedWidth(24);
+	listTabs_->installEventFilter(this);
+	positionBankFade();
 
 	// THE INITIAL ARRANGEMENT (spec §1/§5). panelMode_ already carries its
 	// real default (Wide) at this point in construction; applyPanelMode's
@@ -679,13 +696,17 @@ void MultiReplayDock::arrangeToolbar(PanelMode m)
 		projectBtn_->setMaximumWidth(280);
 		h1->addWidget(projectBtn_);
 		h1->addWidget(toolSepA_);
-		// bankRow_ takes the row's stretch (operator override, 2026-09-08:
-		// no 300px cap — the defined banks use the slack, the tools keep
-		// the right edge). No second free stretch: two shares of leftover
-		// space let the strip swallow the row and strand the "+" an inch
-		// past the last tab.
+		// TB .tb-tabs{max-width:300px} (T1): the strip is capped at
+		// 300+25+3 and only then stops growing — stretch 1 lets it take
+		// its share of the slack, the PLAIN stretch after it takes the
+		// rest (between the banks and the tools), so the strip never
+		// swallows the row and the "+" never strands past the last tab.
 		h1->addWidget(bankRow_, 1);
+		h1->addStretch(1);
 		h1->addWidget(toolSepB_);
+		// TB: outside Short the field stands alone (T3) — the key hides
+		// (a hidden layout item takes no room, so it stays placed).
+		searchIcon_->setVisible(false);
 		h1->addWidget(searchIcon_);
 		h1->addWidget(search_);
 		h1->addWidget(monitorsBtn_);
@@ -698,6 +719,7 @@ void MultiReplayDock::arrangeToolbar(PanelMode m)
 		toolSepB_->show();
 		toolSepC_->show();
 		toolRow2_->hide();
+		applyToolbarSeparators();
 	} else if (want == 1) {
 		// SHORT (tabella responsive): the Wide row, but search and
 		// Monitors as icons — .tb-ico{26x25} (only Tall narrows to 23).
@@ -718,8 +740,14 @@ void MultiReplayDock::arrangeToolbar(PanelMode m)
 		projectBtn_->setMaximumWidth(280);
 		h1->addWidget(projectBtn_);
 		h1->addWidget(toolSepA_);
+		// Capped like Wide (T1): the strip takes its share up to the cap,
+		// the plain stretch after it takes the rest.
 		h1->addWidget(bankRow_, 1);
+		h1->addStretch(1);
 		h1->addWidget(toolSepB_);
+		// TB: the key stands alone in Short (T3) — the field hides until
+		// tapped (applyPanelMode's narrow logic).
+		searchIcon_->setVisible(true);
 		h1->addWidget(searchIcon_);
 		h1->addWidget(search_);
 		h1->addWidget(monitorsBtn_);
@@ -732,21 +760,24 @@ void MultiReplayDock::arrangeToolbar(PanelMode m)
 		toolSepB_->show();
 		toolSepC_->show();
 		toolRow2_->hide();
+		applyToolbarSeparators();
 	} else {
 		// TALL (spec §5): three rows —
 		//   1) [project ▾] … ● LIVE (fenced by rules) … Monitors ⛶▾ ⚙
 		//   2) the search field, extended to the row's full width
 		//   3) banks + "+" (bankRow_, in its own row of toolbarV_)
 		//
-		// MONITORS LOSES ITS WORD HERE, LIVE DOES NOT. Row 1 carries the
-		// project selector AND both panel keys AND the layout/gear pair
-		// in a column as narrow as 320 px; Monitors' icon and tooltip say
-		// what it does, but LIVE stays whole (operator request, 2026-09-08
-		// — the drawing shows it full on Tall's first row, fenced by rules
-		// past the selector). The Tall selector cap (150) pays for it.
+		// BOTH WORDS STAY (D7 + the Tall figure: «▦Monitors», LIVE whole).
+		// Row 1 is fenced, not roomy — the project selector's Tall cap
+		// (150) is what pays for it, squeezing first when the names run
+		// long.
 		liveBtn_->setText(QString::fromUtf8(obs_module_text("Dock.LiveMode"))
 					  .toUpper());
-		monitorsBtn_->setText(QString());
+		monitorsBtn_->setText(
+			QString::fromUtf8(obs_module_text("Dock.Monitors")));
+		monitorsBtn_->setMinimumSize(QSize(0, 0));
+		monitorsBtn_->setMaximumSize(
+			QSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX));
 		// THE EXPORT KEY KEEPS ITS WORD (TAB E6): the tools bar wraps onto
 		// two lines in the ~320 px column now, so nothing has to hide.
 		if (exportBtn_)
@@ -772,7 +803,9 @@ void MultiReplayDock::arrangeToolbar(PanelMode m)
 		toolSepB_->show();
 		toolSepC_->hide();
 
-		h2->addWidget(searchIcon_);
+		// TB: the field rides row 2 alone, full width (T3) — the key
+		// stays placed but hidden.
+		searchIcon_->setVisible(false);
 		h2->addWidget(search_, 1);
 		toolRow2_->show();
 
@@ -780,6 +813,14 @@ void MultiReplayDock::arrangeToolbar(PanelMode m)
 		toolbarV_->insertWidget(2, bankRow_);
 	}
 	bankRow_->show();
+}
+
+// TB T7: when the single row tightens, the separators go before LIVE gets
+// squeezed (shared rule: shedToolbarSeparators, dock-layout.hpp).
+void MultiReplayDock::applyToolbarSeparators()
+{
+	shedToolbarSeparators(toolRow1_, toolSepA_, toolSepB_, toolSepC_,
+			      toolbarArrangement_ == 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -1166,6 +1207,18 @@ void MultiReplayDock::positionSpeedTick()
 		speedHi_->move(std::max(0, p125 + 11 - speedHi_->sizeHint().width()),
 			       y);
 	}
+}
+
+void MultiReplayDock::positionBankFade()
+{
+	// TB .fade: 24px over the strip's right end, full tab height. Asked of
+	// the tabs' own geometry on every resize of theirs — which is also every
+	// resize of the strip, every tab added, every mode change.
+	if (!bankFade_ || !listTabs_)
+		return;
+	bankFade_->move(std::max(0, listTabs_->width() - 24), 0);
+	bankFade_->setFixedHeight(std::max(1, listTabs_->height()));
+	bankFade_->show();
 }
 
 // ---------------------------------------------------------------------------

@@ -125,6 +125,7 @@ inline constexpr int kAddBankSide = 25;       // .tb-add{width:25px;height:25px}
 inline constexpr int kSearchMinW = 150;       // .tb-search{min-width:150px}
 inline constexpr int kSearchMinWNarrow = 112; // .tb-search.narrow{min-width:112px}
 inline constexpr int kBankTabGap = 3;         // .tb-tabs{gap:3px}
+inline constexpr int kBankStripMaxW = 300;    // .tb-tabs{max-width:300px} (T1)
 
 // ---------------------------------------------------------------------------
 // GALLERY SCALE (§6.5) — the operator is 1-2 m from the screen, not the ~60 cm
@@ -462,6 +463,34 @@ QWidget *flowBand(QWidget *parent, const QList<QWidget *> &children,
 
 // Mark the one section per line that absorbs the width nobody claimed.
 QWidget *stretchyZone(QWidget *zone);
+
+// TB T7 — SHED SEPARATORS BEFORE SQUEEZING KEYS. When the single toolbar
+// row tightens past what its minimum needs, the thin rules go first (fence
+// C, then B, then A) — LIVE keeps its whole word. Tall keeps its fence:
+// the Tall figure draws LIVE fenced. Shared by the dock and the mockup's
+// mirror arrangement, so the two shed the same rules in the same order.
+inline void shedToolbarSeparators(QWidget *toolRow, QWidget *sepA,
+				  QWidget *sepB, QWidget *sepC, bool tall)
+{
+	if (!toolRow || !toolRow->layout())
+		return;
+	QWidget *seps[3] = {sepC, sepB, sepA};
+	for (QWidget *s : seps)
+		if (s)
+			s->setVisible(true);
+	if (tall)
+		return;
+	if (toolRow->width() <= 0)
+		return; // pre-layout: the settled pass corrects this
+	QLayout *h = toolRow->layout();
+	for (int i = 0; i < 3; i++) {
+		h->invalidate();
+		if (h->minimumSize().width() <= toolRow->width())
+			return;
+		if (seps[i])
+			seps[i]->setVisible(false);
+	}
+}
 
 // A grid for one section's keys: no margins, the shared row pitch, and FIXED IN
 // HEIGHT — a grid handed more height than it needs shares it out among its rows,

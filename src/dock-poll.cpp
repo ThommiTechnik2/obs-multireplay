@@ -1242,7 +1242,14 @@ void MultiReplayDock::poll()
 	// off the fast path.
 	if (refreshStatus) {
 		applyChannelBVisibility();
-		// ...AND HOLD THE REPLAY AUDIO WHERE THE MUTE KEY SAYS. A source
+		// ...AND WHETHER ANOTHER LIST MAY BE CREATED. setEventListCount
+		// touches Config, not the store, so no version bump ever called
+		// refreshListNames for it: at 20 the + key sat there inert until
+		// the next mark (and the gate's 300 ms never saw it hide). Same
+		// beat, same reason — and refreshListNames early-outs on an
+		// unchanged count, so this costs one getConfig, not twenty
+		// relayouts.
+		refreshListNames();		// ...AND HOLD THE REPLAY AUDIO WHERE THE MUTE KEY SAYS. A source
 		// re-created on a collection reload comes back unmuted, and OBS's
 		// own mixer must not be the thing that lifts a mute the operator
 		// set here — so the key's state is re-asserted onto the bay(s) it

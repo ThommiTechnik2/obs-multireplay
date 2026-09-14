@@ -23,6 +23,7 @@
 #include <QString>
 #include <QTabBar>
 #include <QTableWidget>
+#include <QToolButton>
 #include <QWidget>
 
 #include <algorithm>
@@ -1009,6 +1010,120 @@ inline bool notePopoverHasChips(const QWidget *popover)
 	if (popover->findChildren<QPushButton *>().isEmpty())
 		return false;
 	return popover->findChild<QLineEdit *>() != nullptr;
+}
+
+// ── TOOLBAR (T1–T8) ────────────────────────────────────────────────────
+// TB «la toolbar»: ~5 banks + pinned +, then scroll inside the strip;
+// search a field (icon only in Short); ⛶▾ with its chevron; LIVE whole;
+// Monitors with its word, in every form.
+
+// TB .tb-tabs{max-width:300px} (T1): the strip is capped — the slack lives
+// between the banks and the tools, not inside the strip (revoked §9b).
+inline bool bankStripCapped(const QWidget *bankRow, int cap)
+{
+	return bankRow && bankRow->width() <= cap;
+}
+
+// TB .fade{width:24px} (T1): the strip ends in a 24px fade over its right
+// end — a wheel-less hint that it scrolls inside. A plain QWidget named
+// mrBankFade, transparent to the mouse so the tabs stay clickable under it.
+inline bool bankStripHasFade(const QWidget *bankRow, QString *detail = nullptr)
+{
+	auto fail = [&](const QString &why) {
+		if (detail)
+			*detail = why;
+		return false;
+	};
+	if (!bankRow)
+		return fail(QStringLiteral("no strip"));
+	const QWidget *tabs =
+		bankRow->findChild<QWidget *>(QStringLiteral("mrListTabs"));
+	if (!tabs)
+		return fail(QStringLiteral("no mrListTabs"));
+	const QWidget *fade =
+		bankRow->findChild<QWidget *>(QStringLiteral("mrBankFade"));
+	if (!fade)
+		return fail(QStringLiteral("no mrBankFade"));
+	if (!fade->isVisibleTo(bankRow))
+		return fail(QStringLiteral("fade hidden"));
+	if (std::abs(fade->width() - 24) > 1)
+		return fail(QStringLiteral("fade w%1").arg(fade->width()));
+	const int tabsRight = tabs->x() + tabs->width();
+	const int fadeRight =
+		fade->mapTo(const_cast<QWidget *>(bankRow), QPoint(0, 0)).x() +
+		fade->width();
+	if (std::abs(tabsRight - fadeRight) > 2)
+		return fail(QStringLiteral("fade ends %1, tabs %2")
+				    .arg(fadeRight)
+				    .arg(tabsRight));
+	if (!fade->testAttribute(Qt::WA_TransparentForMouseEvents))
+		return fail(QStringLiteral("fade eats clicks"));
+	if (detail)
+		*detail = QStringLiteral("fade 24px over the tabs' end");
+	return true;
+}
+
+// SPEC §9 (T4): the layout key wears ⛶ WITH its chevron — one drawn mark,
+// not the platform's arrow (no rule reaches that). Read off the icon
+// pixmap itself: ink on the left two thirds (the corners) and ink in the
+// right sixth (the chevron). Fractions, so DPI scaling cannot move them.
+inline bool layoutKeyHasChevron(const QAbstractButton *key,
+				QString *detail = nullptr)
+{
+	if (!key || key->icon().isNull()) {
+		if (detail)
+			*detail = QStringLiteral("no icon");
+		return false;
+	}
+	const QPixmap pm = key->icon().pixmap(key->iconSize());
+	if (pm.isNull() || pm.width() < 6) {
+		if (detail)
+			*detail = QStringLiteral("no pixmap");
+		return false;
+	}
+	const QImage img = pm.toImage().convertToFormat(
+		QImage::Format_ARGB32);
+	bool left = false, right = false;
+	for (int y = 0; y < img.height(); y++) {
+		for (int x = 0; x < img.width(); x++) {
+			if (qAlpha(img.pixel(x, y)) < 32)
+				continue;
+			if (x < img.width() * 2 / 3)
+				left = true;
+			if (x > img.width() * 5 / 6)
+				right = true;
+		}
+	}
+	if (detail)
+		*detail = QStringLiteral("corners %1, chevron %2")
+				  .arg(left)
+				  .arg(right);
+	return left && right;
+}
+
+// TB «campo sempre, icona solo in Short» (T3): outside Short the field
+// stands alone; in Short the key stands alone until tapped.
+inline bool searchConform(const QWidget *panel, const QString &form,
+			  QString *detail = nullptr)
+{
+	if (!panel) {
+		if (detail)
+			*detail = QStringLiteral("no panel");
+		return false;
+	}
+	const QWidget *field =
+		panel->findChild<QWidget *>(QStringLiteral("mrSearch"));
+	const QWidget *lens =
+		panel->findChild<QWidget *>(QStringLiteral("mrSearchKey"));
+	const bool fieldOut = field && field->isVisibleTo(panel);
+	const bool lensOut = lens && lens->isVisibleTo(panel);
+	if (detail)
+		*detail = QStringLiteral("field %1, key %2")
+				  .arg(fieldOut)
+				  .arg(lensOut);
+	if (form == QStringLiteral("short"))
+		return !fieldOut && lensOut;
+	return fieldOut && !lensOut;
 }
 
 } // namespace multireplay::probe

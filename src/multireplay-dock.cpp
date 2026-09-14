@@ -2180,6 +2180,9 @@ void MultiReplayDock::resizeEvent(QResizeEvent *event)
 		// or empty column a growing share of a growing panel.
 		applyMonitorsRoom();
 		applyPreviewAspect();
+		// Same settled pass: the toolbar row sheds its separators (T7)
+		// once the laid-out widths are real.
+		applyToolbarSeparators();
 	});
 }
 
@@ -5066,6 +5069,11 @@ bool MultiReplayDock::eventFilter(QObject *watched, QEvent *event)
 	if (watched == speed_ && speed_ &&
 	    event->type() == QEvent::Resize)
 		positionSpeedTick();
+
+	// THE BANK FADE TRACKS ITS STRIP (artifact toolbar .fade).
+	if (watched == listTabs_ && listTabs_ &&
+	    event->type() == QEvent::Resize)
+		positionBankFade();
 
 	// THE TABLE EATS THE KEYS THAT MATTER. A QTableWidget with focus takes
 	// Enter to open an editor and ←/→ to walk across columns, and the table is

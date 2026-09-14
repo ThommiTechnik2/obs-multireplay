@@ -4888,13 +4888,18 @@ void runReopenPass(const std::string &outPath)
 	int toolbarTallIcoW = -1, toolbarTallIcoH = -1;
 	bool toolbarTallIconsAre23Wide = false;
 	// Operator round 2026-09-08: the magnifier is a real key, the bank tabs
-	// carry their own menu, Tall keeps a whole-word LIVE, and the bank
-	// strip spends the row's slack instead of capping at 300px.
+	// carry their own menu, Tall keeps a whole-word LIVE. The slack-spending
+	// strip from the same round is REVOKED (D6): TB caps it at 300px (T1).
 	bool toolbarSearchIsAKey = false;
 	bool toolbarTabsHaveMenu = false;
 	bool toolbarTallLiveHasWord = false;
+	bool toolbarTallMonitorsWord = false;
+	bool toolbarSearchPerForm = false;
+	bool toolbarLiveWhole = false;
 	int toolbarStripW = -1;
-	bool toolbarStripUsesSlack = false;
+	bool toolbarStripCapped300 = false;
+	bool toolbarBankFade = false;
+	bool toolbarSearchFieldWide = false;
 	// Operator round 2026-09-08: Monitors must read whole, and + must
 	// select what it creates (in Tall the new tab sat out of view while
 	// the old list stayed current).
@@ -5661,54 +5666,89 @@ void runReopenPass(const std::string &outPath)
 				gear->width() == multireplay::kToolIcoW &&
 				gear->height() == multireplay::kToolIcoH;
 
-			// ── CLUSTER ORDER — spec-unico §1, the contradiction §9
-			// recorded: the spec orders search · Monitors · layout ·
-			// gear, the toolbar concept the last two the other way.
-			// By mrKey property, never objectName: three toolbar
-			// widgets share "mrToggle" for the look, and findChild
-			// returns whichever Qt walks into first (see 735ebec).
-			{
-				const QStringList want{
-					QStringLiteral("search"),
-					QStringLiteral("monitors"),
-					QStringLiteral("layout"),
-					QStringLiteral("settings")};
-				struct Hit {
-					QString id;
-					int x;
-				};
-				QList<Hit> hits;
-				for (QWidget *v :
-				     dock->findChildren<QWidget *>()) {
-					const QString id = v->property(
+		// ── CLUSTER ORDER — spec-unico §1, the contradiction §9
+		// recorded: the spec orders search · Monitors · layout ·
+		// gear, the toolbar concept the last two the other way.
+		// By mrKey property, never objectName: three toolbar
+		// widgets share "mrToggle" for the look, and findChild
+		// returns whichever Qt walks into first (see 735ebec).
+		// TB T3 runs here too: outside Short the magnifier hides and
+		// the FIELD is the search — so in this forced-Wide window the
+		// keyed order is monitors · layout · settings, with the field
+		// standing where the key stood.
+		{
+			const QStringList want{
+				QStringLiteral("monitors"),
+				QStringLiteral("layout"),
+				QStringLiteral("settings")};
+			struct Hit {
+				QString id;
+				int x;
+			};
+			QList<Hit> hits;
+			for (QWidget *v :
+			     dock->findChildren<QWidget *>()) {
+				const QString id = v->property(
 								   kKeyProperty)
 							   .toString();
-					if (!want.contains(id) ||
-					    !v->isVisible())
-						continue;
-					hits.append(
-						{id, v->mapTo(dock, QPoint(0, 0))
-							      .x()});
-				}
-				std::sort(hits.begin(), hits.end(),
-					  [](const Hit &a, const Hit &b) {
-						  return a.x < b.x;
-					  });
-				QStringList names;
-				for (const Hit &h : hits)
-					names.append(h.id);
-				toolbarClusterOrder = names.join(',');
-				toolbarToolClusterOrder = (names == want);
+				if (!want.contains(id) ||
+				    !v->isVisible())
+					continue;
+				hits.append(
+					{id, v->mapTo(dock, QPoint(0,
+								  0))
+						      .x()});
 			}
-
-			// ── SEARCH WIDTH — .tb-search{min-width:150px}.
+			std::sort(hits.begin(), hits.end(),
+				  [](const Hit &a, const Hit &b) {
+					  return a.x < b.x;
+				  });
+			QStringList names;
+			for (const Hit &h : hits)
+				names.append(h.id);
+			toolbarClusterOrder = names.join(',');
+			toolbarToolClusterOrder = (names == want);
+			// The field where the key stood: left of Monitors.
 			if (auto *sf = dock->findChild<QWidget *>(
 				    QStringLiteral("mrSearch"))) {
-				toolbarSearchMinW = sf->minimumWidth();
-				toolbarSearchIs150Wide =
-					toolbarSearchMinW ==
-					multireplay::kSearchMinW;
+				const int sfx = sf->mapTo(dock, QPoint(0, 0))
+							.x();
+				int monx = INT_MAX;
+				for (QWidget *v :
+				     dock->findChildren<QWidget *>()) {
+					if (v->property(kKeyProperty)
+						    .toString() !=
+					    QStringLiteral("monitors") ||
+					    !v->isVisible())
+						continue;
+					monx = v->mapTo(dock, QPoint(0, 0))
+						       .x();
+					break;
+				}
+				toolbarToolClusterOrder =
+					toolbarToolClusterOrder &&
+					sf->isVisibleTo(dock) && sfx < monx;
+				toolbarClusterOrder +=
+					QStringLiteral(" field@%1").arg(sfx);
 			}
+		}
+
+		// ── SEARCH WIDTH — .tb-search{min-width:150px}.
+		if (auto *sf = dock->findChild<QWidget *>(
+			    QStringLiteral("mrSearch"))) {
+			toolbarSearchMinW = sf->minimumWidth();
+			toolbarSearchIs150Wide =
+				toolbarSearchMinW ==
+				multireplay::kSearchMinW;
+			// ── SEARCH IS A FIELD, THE KEY HIDES (TB, T3 — this
+			// window is forced Wide for these reads): the magnifier
+			// stands alone only in Short.
+			auto *lens = dock->findChild<QWidget *>(
+				QStringLiteral("mrSearchKey"));
+			toolbarSearchFieldWide =
+				sf->isVisibleTo(dock) && lens &&
+				!lens->isVisibleTo(dock);
+		}
 			// ── SEARCH IS A KEY (operator request, 2026-09-08): where
 			// the field hides, the magnifier is what opens it — a QLabel
 			// with an event filter is not pressable-looking. The gate
@@ -5744,16 +5784,21 @@ void runReopenPass(const std::string &outPath)
 				toolbarTabsHaveMenu =
 					tabs->contextMenuPolicy() ==
 					Qt::CustomContextMenu;
-				// ── THE STRIP SPENDS THE SLACK (operator override,
-				// 2026-09-08 — no 300px cap): at 1500px Wide with the
-				// gate's 20 lists, the strip must stand wider than the
-				// old 300+25+3 box, instead of stranding slack between
-				// "+" and the tools.
-				if (QWidget *strip = tabs->parentWidget()) {
-					toolbarStripW = strip->width();
-					toolbarStripUsesSlack =
-						toolbarStripW > 328;
-				}
+			// ── THE STRIP IS CAPPED (TB .tb-tabs{max-width:300px}, T1 —
+			// the §9b elastic strip is revoked by D6): at 1500px Wide
+			// with the gate's 20 lists the strip stands at most
+			// 300+25+3, and the row's leftover sits between "+" and
+			// the tools instead of inside more tabs.
+			if (QWidget *strip = tabs->parentWidget()) {
+				toolbarStripW = strip->width();
+				toolbarStripCapped300 =
+					toolbarStripW > 0 &&
+					toolbarStripW <= 300 + 25 + 3;
+			}
+			// ── THE STRIP ENDS IN A FADE (TB .fade, T1).
+			toolbarBankFade =
+				multireplay::probe::bankStripHasFade(
+					tabs ? tabs->parentWidget() : nullptr);
 			}
 			// ── MONITORS READS WHOLE: Fixed policy means never squeezed
 			// — but a row that overflows its panel clips instead, so
@@ -5802,12 +5847,23 @@ void runReopenPass(const std::string &outPath)
 							.eventListCount == 6 &&
 						store.selectedList() == 6 &&
 						bankTabs->currentIndex() == 5;
-					// At 20 there is nothing to create: the +
-					// goes away (artifact toolbar, decided).
-					core.setEventListCount(kEventLists);
-					std::this_thread::sleep_for(
-						std::chrono::milliseconds(300));
-					toolbarPlusHidesAt20 = !add->isVisible();
+				// At 20 there is nothing to create: the +
+				// goes away (artifact toolbar, decided). Driven
+				// directly, not via the slow beat: the count is
+				// set from this thread and the beat is timing,
+				// not state — waiting on it is a race against a
+				// loaded UI thread.
+				core.setEventListCount(kEventLists);
+				runOnUi([&]() {
+					dock->refreshListNamesForGate();
+					toolbarPlusHidesAt20 =
+						!add->isVisible();
+					obs_log(LOG_INFO,
+						"[selftest] dock: + at 20 — "
+						"key=%p visible=%d",
+						(void *)add,
+						(int)add->isVisible());
+				});
 					core.setEventListCount(wasCount);
 					store.selectList(wasSel);
 					bankTabs->setCurrentIndex(wasIdx);
@@ -6264,12 +6320,22 @@ void runReopenPass(const std::string &outPath)
 				g &&
 				g->width() == multireplay::kToolIcoWTall &&
 				g->height() == multireplay::kToolIcoH;
-			// ── TALL KEEPS A WHOLE-WORD LIVE (operator request,
-			// 2026-09-08 — the drawing shows it full on Tall's first
-			// row). Only Monitors goes to icon here.
-			if (auto *live = dock->findChild<QPushButton *>(
-				    QStringLiteral("mrLive")))
-				toolbarTallLiveHasWord = !live->text().isEmpty();
+		// ── TALL KEEPS A WHOLE-WORD LIVE (operator request,
+		// 2026-09-08 — the drawing shows it full on Tall's first
+		// row). Monitors keeps its word here too (D7).
+		if (auto *live = dock->findChild<QPushButton *>(
+			    QStringLiteral("mrLive")))
+			toolbarTallLiveHasWord = !live->text().isEmpty();
+		for (QWidget *v : dock->findChildren<QWidget *>()) {
+			if (v->property(kKeyProperty).toString() !=
+				    QStringLiteral("monitors") ||
+			    !v->isVisible())
+				continue;
+			if (auto *b = qobject_cast<QAbstractButton *>(v))
+				toolbarTallMonitorsWord = b->text().contains(
+					QStringLiteral("Monitors"));
+			break;
+		}
 			// ── NARROW GHOSTS + BAY PARITY (artifact monitor: 4 fixed
 			// slots/row with empties reserved; A/B peers, equal size).
 			// 2 cameras → 1 row → 2 ghosts.
@@ -6614,6 +6680,14 @@ void runReopenPass(const std::string &outPath)
 		bool shortBaysMeasured = false;
 		bool shortBaysOk = false;
 		QString shortBaysDetail;
+		// TB T3 (search) + T6 (LIVE): the search shape follows the form
+		// (dock-probe.hpp searchConform), and Short LIVE fits its word
+		// — short shots only.
+		bool searchOk = false;
+		QString searchDetail;
+		bool liveMeasured = false;
+		bool liveOk = false;
+		QString liveDetail;
 	};
 	std::vector<ArtifactShot> artifactShots;
 	bool artifactSetCaptured = false;
@@ -7068,8 +7142,39 @@ void runReopenPass(const std::string &outPath)
 								"toolbar box %1, monitor block %2")
 									  .arg(tb ? "found" : "MISSING")
 									  .arg(mon && mon->isVisible()
-										       ? "shown"
-										       : "MISSING/hidden");
+									       ? "shown"
+									       : "MISSING/hidden");
+						}
+						// TB T3 + T6, on the shot just taken: the
+						// search shape follows the form, and in
+						// Short LIVE keeps its whole word.
+						s.searchOk = multireplay::probe::
+							searchConform(
+								dock, s.form,
+								&s.searchDetail);
+						if (s.form ==
+						    QStringLiteral("short")) {
+							s.liveMeasured = true;
+							QWidget *live =
+								findKeyButton(
+									dock,
+									QStringLiteral(
+										"live"));
+							s.liveOk =
+								live &&
+								multireplay::probe::
+									textFits(
+										live);
+							s.liveDetail =
+								QStringLiteral(
+									"LIVE '%1'")
+									.arg(live
+									     ? qobject_cast<
+										       QAbstractButton *>(
+										       live)
+										       ->text()
+									     : QStringLiteral(
+										       "?"));
 						}
 					});
 					obs_log(s.saved ? LOG_INFO : LOG_ERROR,
@@ -7302,6 +7407,46 @@ void runReopenPass(const std::string &outPath)
 			"[selftest] reopen: layout_short_bays_over_slots — %d of %d "
 			"short shots with A|B over the slots",
 			shotsShortBaysOk, shotsShortBaysMeasured);
+		// TB T3: the search shape on all 16 shots; T6: Short LIVE whole
+		// on the 4 short ones.
+		{
+			int searchOkN = 0, liveOkN = 0, liveMeasuredN = 0;
+			QString firstBad, firstLive;
+			for (const ArtifactShot &s : artifactShots) {
+				if (s.searchOk) {
+					searchOkN++;
+				} else if (firstBad.isEmpty()) {
+					firstBad = s.file + ": " +
+						   s.searchDetail;
+				}
+				if (s.liveMeasured) {
+					liveMeasuredN++;
+					if (s.liveOk) {
+						liveOkN++;
+					} else if (firstLive.isEmpty()) {
+						firstLive = s.file + ": " +
+							    s.liveDetail;
+					}
+				}
+			}
+			toolbarSearchPerForm =
+				artifactShots.size() == 16 && searchOkN == 16;
+			toolbarLiveWhole = liveMeasuredN == 4 && liveOkN == 4;
+			obs_log((toolbarSearchPerForm && toolbarLiveWhole)
+					? LOG_INFO
+					: LOG_ERROR,
+				"[selftest] reopen: toolbar_search_per_form — "
+				"%d of 16 shots (%s); toolbar_live_whole — "
+				"%d of %d short shots (%s)",
+				searchOkN,
+				firstBad.isEmpty()
+					? "all conform"
+					: qUtf8Printable(firstBad),
+				liveOkN, liveMeasuredN,
+				firstLive.isEmpty()
+					? "whole"
+					: qUtf8Printable(firstLive));
+		}
 		// E1–E8, D1, D2 (Task 12): the event table on the dock itself.
 		// The shots above judged it by looking; this drives the real
 		// widgets — the popover included, opened for real on a real cell.
@@ -7459,7 +7604,10 @@ void runReopenPass(const std::string &outPath)
 		  toolbarToolIconsAre26x25 && toolbarToolClusterOrder &&
 		  toolbarSearchIs150Wide && toolbarTallIconsAre23Wide &&
 		  toolbarSearchIsAKey && toolbarTabsHaveMenu &&
-		  toolbarTallLiveHasWord && toolbarStripUsesSlack &&
+		  toolbarTallLiveHasWord && toolbarTallMonitorsWord &&
+		  toolbarStripCapped300 && toolbarBankFade &&
+		  toolbarSearchFieldWide && toolbarSearchPerForm &&
+		  toolbarLiveWhole &&
 		  toolbarMonitorsReadsWhole && toolbarPlusSelectsNew &&
 		  toolbarPlusHidesAt20 && toolbarProjectMenuComplete &&
 		  monitorBadgeSitsAt43 && monitorRingReserved &&
@@ -7593,8 +7741,16 @@ void runReopenPass(const std::string &outPath)
 			  toolbarTabsHaveMenu);
 	obs_data_set_bool(checks, "toolbar_tall_live_has_word",
 			  toolbarTallLiveHasWord);
-	obs_data_set_bool(checks, "toolbar_strip_uses_slack",
-			  toolbarStripUsesSlack);
+	obs_data_set_bool(checks, "toolbar_tall_monitors_word",
+			  toolbarTallMonitorsWord);
+	obs_data_set_bool(checks, "toolbar_strip_capped_300",
+			  toolbarStripCapped300);
+	obs_data_set_bool(checks, "toolbar_bank_fade", toolbarBankFade);
+	obs_data_set_bool(checks, "toolbar_search_field_wide",
+			  toolbarSearchFieldWide);
+	obs_data_set_bool(checks, "toolbar_search_per_form",
+			  toolbarSearchPerForm);
+	obs_data_set_bool(checks, "toolbar_live_whole", toolbarLiveWhole);
 	obs_data_set_bool(checks, "toolbar_monitors_reads_whole",
 			  toolbarMonitorsReadsWhole);
 	obs_data_set_bool(checks, "toolbar_plus_selects_new",

@@ -874,8 +874,23 @@ QTabBar#mrListTabs::tab:selected {
 /* Shield round 2: a disabled list tab wore Yami's grey, and the scroll
    arrows (20 lists fit; more scroll) wore the style default. */
 QTabBar#mrListTabs::tab:disabled { color: @textDim@; }
-QTabBar#mrListTabs::scroller { width: 18px; }
-QTabBar#mrListTabs QToolButton { background: @raise1@; border: 1px solid @border@; }
+/* TB T2: the strip ends in arrows, not in a white rectangle. 16px of the
+   strip's own ground (@panel@: the bar's containers are transparent, so
+   that is what is behind — there is no @toolbar@ token because there is
+   no toolbar fill), no border, dim ink. Verified on the real dock's PNG,
+   not just against Yami: that white is OBS's own QToolButton, which only
+   a rule this specific beats. */
+QTabBar#mrListTabs::scroller { width: 16px; }
+QTabBar#mrListTabs QToolButton { background: @panel@; border: 0; color: @textDim@; }
+/* TB .fade (T1): the last 24px of the strip fade the tabs into the strip's
+   ground — the wheel-less hint that it scrolls inside. A plain QWidget
+   (mrBankFade), transparent to the mouse so the tabs stay clickable under
+   it; the gradient follows the theme through the token, like everything. */
+QWidget#mrBankFade {
+	background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+		stop:0 rgba(0, 0, 0, 0), stop:1 @panel@);
+	border: 0;
+}
 
 )QSS"
 /* MSVC caps a single string literal at 16380 bytes and truncates SILENTLY past

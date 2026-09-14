@@ -102,7 +102,6 @@ constexpr int kSeekH = 42;
 // Wide/Short: enough for ~5 short tabs plus "+", then it stops growing and
 // the rest of the row's leftover width goes to the gap that separates it
 // from the search/tools/Live cluster.
-constexpr int kBankRowMaxWidth = 320;
 // Narrower than this a tile stops being a picture and becomes a smear; wider
 // than this it stops being a confidence monitor and starts competing with the
 // bay it is meant to be checked against.
@@ -717,19 +716,16 @@ public:
 				exp_->setText(QStringLiteral("⤓ Esporta"));
 			h1->addWidget(projectBtn_);
 			h1->addWidget(toolSepA_);
-			// bankRow_ gets a CAPPED stretch, not an open one: an
-			// Ignored-policy child reports nothing toward bankRow_'s
-			// own sizeHint, so stretch=0 starved it down to just the
-			// "+" (the tabs stopped drawing); an uncapped stretch=1
-			// swung the other way and let it swallow the whole row,
-			// stranding "+" an inch past the last tab on any panel
-			// wider than the tabs need. Capped, it grows enough to
-			// show its tabs and stops — the REST of the leftover
-			// space is the plain addStretch right after it.
-			bankRow_->setMaximumWidth(kBankRowMaxWidth);
+			// TB .tb-tabs{max-width:300px} (T1), like the dock: the strip
+			// takes its share up to the cap, the plain stretch after it
+			// takes the rest. Shared numbers, dock-layout.hpp.
+			bankRow_->setMaximumWidth(kBankStripMaxW + kAddBankSide +
+						   kBankTabGap);
 			h1->addWidget(bankRow_, 1);
 			h1->addStretch(1);
 			h1->addWidget(toolSepB_);
+			// TB: the field stands alone outside Short (T3).
+			searchIcon_->setVisible(false);
 			h1->addWidget(searchIcon_);
 			h1->addWidget(search_);
 			h1->addWidget(monitorsBtn_);
@@ -745,6 +741,8 @@ public:
 			toolSepB_->show();
 			toolSepC_->show();
 			toolRow2_->hide();
+			shedToolbarSeparators(toolRow1_, toolSepA_, toolSepB_,
+					      toolSepC_, false);
 		} else if (want == 1) {
 			// SHORT, mirroring dock-build.cpp: the Wide row with search
 			// and Monitors as icons (the search stand-in hides; the real
@@ -757,10 +755,15 @@ public:
 				exp_->setText(QStringLiteral("⤓ Esporta"));
 			h1->addWidget(projectBtn_);
 			h1->addWidget(toolSepA_);
-			bankRow_->setMaximumWidth(kBankRowMaxWidth);
+			// Capped like Wide (T1): the strip takes its share up to the
+			// cap, the plain stretch after it takes the rest.
+			bankRow_->setMaximumWidth(kBankStripMaxW + kAddBankSide +
+						   kBankTabGap);
 			h1->addWidget(bankRow_, 1);
 			h1->addStretch(1);
 			h1->addWidget(toolSepB_);
+			// TB: the key stands alone in Short (T3).
+			searchIcon_->setVisible(true);
 			h1->addWidget(searchIcon_);
 			h1->addWidget(search_);
 			h1->addWidget(monitorsBtn_);
@@ -773,16 +776,17 @@ public:
 			toolSepB_->show();
 			toolSepC_->show();
 			toolRow2_->hide();
+			shedToolbarSeparators(toolRow1_, toolSepA_, toolSepB_,
+					      toolSepC_, false);
 		} else {
 			// TALL: three rows — 1) project · LIVE (whole word, fenced) ·
 			// Monitors/gear/full-screen  2) search, full width
-			// 3) banks + "+". Only Monitors loses its word here.
+			// 3) banks + "+". Both words stay (D7 + the Tall figure),
+			// like the dock.
 			liveBtn_->setText(QStringLiteral("LIVE"));
-			monitorsBtn_->setText(QString());
-			// ...AND EXPORT LOSES ITS WORD TOO, like the real panel: the
-			// tools bar overflows a side dock with it on.
+			monitorsBtn_->setText(QStringLiteral("Monitors"));
 			if (exp_)
-				exp_->setText(QStringLiteral("⤓"));
+				exp_->setText(QStringLiteral("⤓ Esporta"));
 			// EXTENDED, not the single-row width: spec §5's own words
 			// for this row are "campo ricerca esteso".
 			search_->setFixedWidth(220);
@@ -799,11 +803,14 @@ public:
 			toolSepB_->show();
 			toolSepC_->hide();
 
-			h2->addWidget(searchIcon_);
+			// TB: the field rides row 2 alone (T3), like the dock.
+			searchIcon_->setVisible(false);
 			h2->addWidget(search_, 1);
 			toolRow2_->show();
 
 			toolbarV_->insertWidget(2, bankRow_);
+			shedToolbarSeparators(toolRow1_, toolSepA_, toolSepB_,
+					      toolSepC_, true);
 		}
 		bankRow_->show();
 	}
@@ -855,6 +862,11 @@ public:
 		QTimer::singleShot(0, this, [this]() {
 			applyMonitorsRoom();
 			applyPreviewAspect();
+			// Same settled pass as the dock: the row sheds its
+			// separators (T7) once the laid-out widths are real.
+			shedToolbarSeparators(toolRow1_, toolSepA_, toolSepB_,
+					      toolSepC_,
+					      toolbarArrangement_ == 2);
 		});
 	}
 
@@ -921,6 +933,8 @@ public:
 	const QWidget *monitorPane() const { return monitorSplit_; }
 	// The toolbar's box (all its rows), for the zone-order checks.
 	const QWidget *toolbarBox() const { return toolbarBox_; }
+	// The bank strip (tabs + "+"), for the T1 cap/fade checks.
+	const QWidget *bankStrip() const { return bankRow_; }
 	// The position bar's row, for "nothing between MARCA|REVIEW and the bar".
 	const QWidget *seekRow() const { return seekRow_; }
 	const QWidget *healthBadge() const { return health_; }
@@ -1100,6 +1114,23 @@ private:
 	QWidget *toolRow2_ = nullptr;
 	QVBoxLayout *toolbarV_ = nullptr;
 	QWidget *bankRow_ = nullptr;
+	QTabBar *listTabs_ = nullptr;
+	QWidget *bankFade_ = nullptr; // TB .fade: 24px over the strip's end
+	void positionBankFade()
+	{
+		if (!bankFade_ || !listTabs_)
+			return;
+		bankFade_->move(std::max(0, listTabs_->width() - 24), 0);
+		bankFade_->setFixedHeight(std::max(1, listTabs_->height()));
+		bankFade_->show();
+	}
+	bool eventFilter(QObject *watched, QEvent *event) override
+	{
+		if (watched == listTabs_ && listTabs_ &&
+		    event->type() == QEvent::Resize)
+			positionBankFade();
+		return QWidget::eventFilter(watched, event);
+	}
 	QToolButton *searchIcon_ = nullptr;
 	QToolButton *projectBtn_ = nullptr; // same widget as projectLbl_
 	QPushButton *liveBtn_ = nullptr;
@@ -1313,7 +1344,9 @@ private:
 		// stand-in of a different widget class would never pick up that
 		// rule — measuring a control that does not exist in the real panel.
 		auto *proj = new QToolButton(box);
-		proj->setText(QStringLiteral("Partita"));
+		// TB: «Partita ▾» — the chevron declares the menu (T8), like the
+		// dock's "name + ▾".
+		proj->setText(QStringLiteral("Partita  ▾"));
 		proj->setObjectName(QStringLiteral("mrProjectSel"));
 		proj->setToolButtonStyle(Qt::ToolButtonTextOnly);
 		setKeyId(proj, QStringLiteral("project")); // same id as dock-build.cpp
@@ -1373,7 +1406,7 @@ private:
 		gearBtn_ = menuKey(Icon::Gear, QStringLiteral("settings"),
 				   QStringLiteral("Impostazioni"), "mrGear", 15);
 		fullScreenBtn_ =
-			iconKey(Icon::FullScreen, QStringLiteral("fullscreen"),
+			iconKey(Icon::FullScreen, QStringLiteral("layout"),
 				QStringLiteral("Schermo intero"), "mrToggle");
 		fullScreenBtn_->setCheckable(true);
 
@@ -1395,6 +1428,7 @@ private:
 		// EventStore, which needs a rig.
 		auto *tabs = new QTabBar(bankRow_);
 		tabs->setObjectName(QStringLiteral("mrListTabs"));
+		listTabs_ = tabs;
 		tabs->setDrawBase(false);
 		tabs->setExpanding(false);
 		tabs->setUsesScrollButtons(true);
@@ -1423,6 +1457,15 @@ private:
 		// At 20 there is nothing to create: hidden, like the real
 		// panel's (this tool always builds all twenty).
 		addBank->setVisible(tabs->count() < multireplay::kEventLists);
+		// TB .fade{width:24px} (T1): like the dock's bankFade_, a child
+		// of the tabs at their right end, kept there by the Mock's own
+		// filter below.
+		bankFade_ = new QWidget(tabs);
+		bankFade_->setObjectName(QStringLiteral("mrBankFade"));
+		bankFade_->setAttribute(Qt::WA_TransparentForMouseEvents);
+		bankFade_->setFixedWidth(24);
+		tabs->installEventFilter(this);
+		positionBankFade();
 
 		v->addWidget(toolRow1_);
 		v->addWidget(toolRow2_);
@@ -3815,6 +3858,137 @@ void checkTableConform(QApplication &app)
 	refreshSheetAssets();
 }
 
+// ── THE TOOLBAR WEARS THE ARTIFACT (T1–T8, D6, D7) ─────────────────────
+//
+// TB «la toolbar»: the bank strip capped at 300+25+3 with a 24px fade,
+// search a field (icon only in Short), ⛶▾ with its chevron, LIVE whole,
+// Monitors with its word in every form but Short, «Partita ▾» with its
+// chevron. At the four artifact forms x four themes, like checkZoneOrder.
+void checkToolbarConform(QApplication &app)
+{
+	using namespace multireplay::probe;
+	const ThemeChoice themeWas = g_theme;
+	const Scheme scWas = g_sc;
+	const auto tintsWas = g_tints;
+	auto *host = new QWidget();
+	host->setAutoFillBackground(true);
+	auto *hl = new QVBoxLayout(host);
+	hl->setContentsMargins(0, 0, 0, 0);
+	auto *w = new Mock();
+	hl->addWidget(w);
+	for (const ArtifactForm &f : kArtifactForms) {
+		const QString form = QString::fromLatin1(f.name);
+		bool cap = true, fade = true, search = true, chev = true,
+		     live = true, mon = true, proj = true;
+		QString detail;
+		for (int theme = 0; theme < 4; theme++) {
+			w->retheme((ThemeChoice)theme, app.palette());
+			w->setLayoutPreset(f.preset);
+			for (int pass = 0; pass < 2; pass++) {
+				host->resize(f.w, f.h);
+				host->show();
+				for (int i = 0; i < 3; i++) {
+					QApplication::processEvents();
+					QApplication::sendPostedEvents();
+				}
+			}
+			// TB .tb-tabs{max-width:300px} (T1): strip ≤ 300+25+3.
+			const bool c = bankStripCapped(
+				w->bankStrip(), 300 + 25 + 3);
+			QString fadeDetail;
+			const bool fd = bankStripHasFade(w->bankStrip(),
+							 &fadeDetail);
+			const bool s = searchConform(w, form);
+			QString chevDetail;
+			const QList<QWidget *> layoutKeys =
+				keysById(w, {"layout"});
+			const auto *layoutKey =
+				qobject_cast<const QAbstractButton *>(
+					layoutKeys.value(0, nullptr));
+			const bool cv = layoutKeyHasChevron(layoutKey,
+							    &chevDetail);
+			const bool lv = noTextElided(keysById(w, {"live"}));
+			QString monText;
+			if (const QList<QWidget *> monKeys =
+				    keysById(w, {"monitors"});
+			    !monKeys.isEmpty())
+				if (const auto *mb = qobject_cast<
+					    const QAbstractButton *>(
+					    monKeys.first()))
+					monText = mb->text();
+			// TB: the word everywhere but Short (icons there); D7
+			// keeps it in Tall too.
+			const bool mn =
+				form == QStringLiteral("short")
+					? monText.isEmpty()
+					: monText.contains(
+						  QStringLiteral("Monitors"));
+			bool pj = false;
+			QString projText = QStringLiteral("?");
+			if (const QList<QWidget *> projKeys =
+				    keysById(w, {"project"});
+			    !projKeys.isEmpty())
+				if (const auto *pb = qobject_cast<
+					    const QAbstractButton *>(
+					    projKeys.first())) {
+					projText = pb->text();
+					pj = projText.contains(QChar(0x25BE));
+				}
+			if (detail.isEmpty() ||
+			    ((!c || !fd || !s || !cv || !lv || !mn || !pj) &&
+			     (cap && fade && search && chev && live && mon &&
+			      proj))) {
+				detail = QStringLiteral(
+						 "theme %1: strip %2 fade(%3) "
+						 "search %4 chev(%5) live %6 "
+						 "monitors '%7' proj '%8'")
+						 .arg(theme)
+						 .arg(c)
+						 .arg(fadeDetail)
+						 .arg(s)
+						 .arg(chevDetail)
+						 .arg(lv)
+						 .arg(monText)
+						 .arg(projText);
+			}
+			cap = cap && c;
+			fade = fade && fd;
+			search = search && s;
+			chev = chev && cv;
+			live = live && lv;
+			mon = mon && mn;
+			proj = proj && pj;
+		}
+		check(cap,
+		      QStringLiteral("%1: bank strip ≤300 + '+'").arg(form),
+		      detail);
+		check(fade,
+		      QStringLiteral("%1: strip ends in a 24px fade").arg(form),
+		      detail);
+		check(search,
+		      QStringLiteral("%1: search is a field, icon only in "
+				     "Short")
+			      .arg(form),
+		      detail);
+		check(chev,
+		      QStringLiteral("toolbar: ⛶▾ carries its chevron"),
+		      detail);
+		check(live,
+		      QStringLiteral("%1: LIVE whole").arg(form), detail);
+		check(mon,
+		      QStringLiteral("%1: Monitors keeps its word").arg(form),
+		      detail);
+		check(proj,
+		      QStringLiteral("%1: project carries its chevron").arg(form),
+		      detail);
+	}
+	delete host;
+	g_theme = themeWas;
+	g_sc = scWas;
+	g_tints = tintsWas;
+	refreshSheetAssets();
+}
+
 // 4. THE SETTINGS DIALOG IS THE SAME PANEL.
 //
 // It is a separate top-level window and every widget kind in it is a kind the
@@ -5771,7 +5945,7 @@ int runChecks(QPalette pal, QApplication &app, const QString &outDir)
 			      label + ": settings buttons sit on no Yami band");
 			check(truleHas("QTabBar#mrListTabs::tab:disabled", "color:"),
 			      label + ": a disabled list tab reads disabled");
-			check(truleHas("QTabBar#mrListTabs::scroller", "width: 18px"),
+			check(truleHas("QTabBar#mrListTabs::scroller", "width: 16px"),
 			      label + ": list tab scrollers keep their width");
 			check(truleHas("QTableWidget#mrEvents::item {",
 				       "IBM Plex Mono"),
@@ -5920,6 +6094,10 @@ int runChecks(QPalette pal, QApplication &app, const QString &outDir)
 	// W2 popover, Out everywhere, wrapping tools, number headings
 	// (E1–E8, D1, D2).
 	checkTableConform(app);
+	// The toolbar wears the artifact: capped bank strip with fade, field
+	// search, ⛶▾ chevron, whole LIVE, worded Monitors, «Partita ▾»
+	// (T1–T8, D6, D7).
+	checkToolbarConform(app);
 
 	// LAST, because it replaces the application palette and style sheet for
 	// the rest of the process: from here on the panel is a LIGHT one sitting

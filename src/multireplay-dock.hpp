@@ -456,6 +456,11 @@ public:
 	// automated gate: proving a rebuild defers under an open popover needs
 	// the rebuild itself driven, not the clock that usually triggers it.
 	void refreshEventsForGate() { refreshEvents(); }
+	// Re-sync the list tabs and the + key now. For the automated gate: the
+	// count is set from another thread and the slow beat that would pick
+	// it up is timing, not state — driving the sync directly makes the
+	// assertion deterministic under any machine load.
+	void refreshListNamesForGate() { refreshListNames(); }
 
 	// What the preview is showing: true = the replay (a clip, a scrub review,
 	// or the frame the last one ended on), false = the live camera mirror.
@@ -1551,6 +1556,12 @@ private:
 	QWidget *toolRow2_ = nullptr; // Tall only: the search field on its own
 	QVBoxLayout *toolbarV_ = nullptr; // owns toolRow1_/toolRow2_/bankRow_
 	QWidget *bankRow_ = nullptr; // the list tabs + "+", spec §1
+	// TB .fade (T1): 24px fade over the strip's right end, a child of the
+	// tabs themselves so the lazily-created scroller arrows (later
+	// children) paint above it. Kept at the right edge by positionBankFade,
+	// fed by the listTabs_ resize events the dock filters.
+	QWidget *bankFade_ = nullptr;
+	void positionBankFade();
 	QToolButton *gearBtn_ = nullptr;
 	QWidget *toolSepA_ = nullptr; // project | banks
 	QWidget *toolSepB_ = nullptr; // banks | tools  (Wide/Short) or Live | tools (Tall)
@@ -1558,6 +1569,7 @@ private:
 	// -1 = not yet arranged, 0 = single row, 1 = Tall's three rows.
 	int toolbarArrangement_ = -1;
 	void arrangeToolbar(PanelMode m);
+	void applyToolbarSeparators();
 	QTableWidget *events_ = nullptr;
 	QLabel *eventCount_ = nullptr; // "N / M" in the table tools bar
 	// (No inspector panel: the per-angle enable box, speed and comment are all

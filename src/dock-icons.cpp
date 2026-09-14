@@ -315,20 +315,23 @@ void buildPaths(Icon id, QPainterPath &fill, QPainterPath &line)
 		break;
 
 	case Icon::FullScreen:
-		// Four corners, no box: the box is the panel and the corners are
-		// what it is being pushed out to.
-		line.moveTo(4.5, 9);
-		line.lineTo(4.5, 4.5);
-		line.lineTo(9, 4.5);
-		line.moveTo(15, 4.5);
-		line.lineTo(19.5, 4.5);
-		line.lineTo(19.5, 9);
-		line.moveTo(19.5, 15);
-		line.lineTo(19.5, 19.5);
-		line.lineTo(15, 19.5);
-		line.moveTo(9, 19.5);
-		line.lineTo(4.5, 19.5);
-		line.lineTo(4.5, 15);
+		// The corners AND the chevron (SPEC §9, T4: ⛶▾): the key opens a
+		// menu, and no style-sheet rule reaches the platform's own arrow
+		// (see popupOnClick) — so the chevron is drawn, 5.5 tall like the
+		// Menu mark's, at the right of a ⛶ narrowed to make room for it.
+		line.moveTo(2, 9);
+		line.lineTo(2, 4.5);
+		line.lineTo(6.5, 4.5);
+		line.moveTo(10, 4.5);
+		line.lineTo(14.5, 4.5);
+		line.lineTo(14.5, 9);
+		line.moveTo(14.5, 15);
+		line.lineTo(14.5, 19.5);
+		line.lineTo(10, 19.5);
+		line.moveTo(6.5, 19.5);
+		line.lineTo(2, 19.5);
+		line.lineTo(2, 15);
+		chevronDown(line, 16.5, 9.25, 6, 5.5);
 		break;
 
 	case Icon::Monitors:
