@@ -1744,18 +1744,6 @@ void MultiReplayDock::refreshEvents()
 		return;
 	}
 	const Qt::Alignment mid = Qt::AlignVCenter | Qt::AlignHCenter;
-	// ONCE for the whole table, not once per cell. getConfig() copies the
-	// entire Config under the core mutex; doing it per event per camera is
-	// what made this function the longest thing in poll(). See buildAngleCell.
-	const std::vector<std::string> commentPresets =
-		ReplayCore::instance().getConfig().commentPresets;
-	// The operator's vocabulary can also change in Settings, which does not go
-	// through rememberComment. Same consequence for a reused cell, so it counts
-	// as a move of the same version.
-	if (commentPresets != lastCommentPresets_) {
-		lastCommentPresets_ = commentPresets;
-		commentVocabVersion_++;
-	}
 	// Where a slow rebuild goes. This function is the longest thing the dock's
 	// poll does, and knowing THAT is not enough to fix it: hoisting a
 	// whole-Config copy out of the per-cell path — the obvious culprit from
@@ -1982,7 +1970,7 @@ void MultiReplayDock::refreshEvents()
 		{
 			QWidget *nc = events_->cellWidget(row, kColNote);
 			if (!updateNoteCell(nc, r.id, r.note)) {
-				nc = buildNoteCell(r.id, r.note, commentPresets);
+				nc = buildNoteCell(r.id, r.note);
 				events_->setCellWidget(row, kColNote, nc);
 				const int want = nc->sizeHint().height() + 2;
 				if (want > tallestCell)

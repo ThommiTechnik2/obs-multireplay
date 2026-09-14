@@ -1532,12 +1532,11 @@ void MultiReplayDock::applyPanelMode(PanelMode m, bool force)
 		}
 	}
 
-	// OUT COLUMN: the one column of the table that is inferable. IN and
-	// DURATA together say where the clip is and how long it runs, so OUT is
-	// arithmetic — and it is the column worth spending on a camera instead
-	// when there are 330 px to divide.
+	// OUT STAYS VISIBLE IN EVERY FORM (E7): IN + Durata may imply it, but a
+	// column the export names and the operator reads is not the one to put
+	// away to save 92 px — the table scrolls instead, in Tall too.
 	if (events_)
-		events_->setColumnHidden(kColOut, m == PanelMode::Tall);
+		events_->setColumnHidden(kColOut, false);
 
 	rebuildMultiview();
 
@@ -3162,22 +3161,21 @@ void MultiReplayDock::rebuildEventColumns()
 	headers << QStringLiteral("#") << obs_module_text("Dock.In")
 		<< obs_module_text("Dock.Out") << obs_module_text("Dock.Duration")
 		<< obs_module_text("Dock.Comment");
-	// One heading per camera, and the camera cell now holds the two things
-	// that really do differ per lens - does it play, and how fast. WHAT the
-	// event is has a column of its own, once per row.
+	// One heading per camera: the NUMBER only (E8 — "1 Media" elided to
+	// "Media" in the 44px column, losing the one character that matters).
+	// The full "N Name" survives one hover away, in the tooltip.
 	for (size_t i = 0; i < cams.size(); i++)
-		headers << camLabels[(int)i];
+		headers << QString::number(cams[i] + 1);
 	events_->setHorizontalHeaderLabels(headers);
-	// The camera headers carry their own label in UserRole: the "angle I am
+	// The camera headers carry their number in UserRole: the "angle I am
 	// watching" marker is a prefix on the text (see updateCamHeaderHighlight),
-	// so the plain label has to survive somewhere.
+	// so the plain number has to survive somewhere.
 	for (size_t i = 0; i < cams.size(); i++) {
 		QTableWidgetItem *h = events_->horizontalHeaderItem(
 			kColFirstCam + (int)i * kColsPerCam);
 		if (h) {
-			h->setData(Qt::UserRole, camLabels[(int)i]);
-			// The 44px column elides long names ("1 Media" is 46px):
-			// the tooltip keeps the whole "N Name" one hover away.
+			h->setData(Qt::UserRole,
+				   QString::number(cams[i] + 1));
 			h->setToolTip(camLabels[(int)i]);
 		}
 	}
@@ -3208,12 +3206,10 @@ void MultiReplayDock::rebuildEventColumns()
 		hh->setMinimumSectionSize(20);
 	}
 	// AND THE ARRANGEMENT AGAIN. setColumnCount() re-initialises the header's
-	// sections, which takes the hidden state of OUT with it — so on a narrow
-	// panel the column the column arrangement had put away came back the first
-	// time a camera was added or renamed, and the table went back to needing a
-	// horizontal scroll. The mode is the authority on which columns fit; it has
-	// to be asked again whenever the columns are rebuilt.
-	events_->setColumnHidden(kColOut, panelMode_ == PanelMode::Tall);
+	// sections, which takes any hidden state with it — so the OUT column is
+	// re-asserted visible here, in every form (E7: the table scrolls, no
+	// column is ever put away, not even in Tall).
+	events_->setColumnHidden(kColOut, false);
 
 	itemsProgrammatic_ = wasProgrammatic;
 	updateCamHeaderHighlight();
@@ -4618,8 +4614,10 @@ bool MultiReplayDock::updateAngleCell(QWidget *cell, int eventId, int cam0,
 	const int pct = speed >= 0 ? (int)std::lround(speed * 100.0) : -1;
 	if (sp->property("mrPct").toInt() != pct) {
 		sp->setProperty("mrPct", pct);
-		sp->setText(pct > 0 ? QString("%1%").arg(pct)
-				    : QStringLiteral("--"));
+		// TAB K1 (E3): the badge prints only an override — empty when
+		// the slider decides, never "--" (that word is the speed
+		// menu's first entry, where it IS a choice).
+		sp->setText(pct > 0 ? QString("%1").arg(pct) : QString());
 	}
 	const bool noOverride = pct <= 0;
 	if (sp->property("mrNoOverride").toBool() != noOverride) {
@@ -4630,131 +4628,54 @@ bool MultiReplayDock::updateAngleCell(QWidget *cell, int eventId, int cam0,
 	return true;
 }
 
-// `presets` is passed IN, and that is the whole of a 175 ms fix.
-//
-// This used to call ReplayCore::getConfig() for its comment list — once per
-// cell, so once per event per camera. getConfig() copies the entire Config
-// (eight camera slots, every string, the preset vector) and takes the core
-// mutex to do it, and the core mutex is held by startRecording and setConfig.
-// On a real 22-minute session the dock's own phase accounting put
-// refreshEvents at 120-175 ms, every time, as the longest thing poll() did;
-// with eight cameras and a match's worth of marks it is that multiplied by
-// forty. The list is the same for every cell on the panel, so it is read once
-// and handed down.
 // ---------------------------------------------------------------------------
-// The event's comment — one cell, one click, two ways in
+// The event's comment — plain text at rest, a chip popover on one click
 // ---------------------------------------------------------------------------
 //
-// THIS IS THE FOURTH ARRANGEMENT OF THIS COLUMN, so the constraints are worth
-// stating once, together, because each previous version satisfied some of them
-// and broke another:
+// TAB W2 (D2, decided 2026-09-11): at rest the cell is ONLY text. No frame,
+// no chooser, no caret — a list of sixty comments is sixty words.
 //
-//   1. AT REST IT IS TEXT. Sixty rows of framed control say what sixty words
-//      say, and set the row height for the whole list while they do it.
-//   2. ONE CLICK. Both to type and to choose — a delegate on a double click
-//      looked right and was WRONG here, because a double click on a row of this
-//      table already means "put this event on air", and with "in output" on
-//      that reaches the Program. Editing a comment must never be able to do
-//      that, and a widget in the cell is what guarantees it: the table never
-//      sees the click at all.
-//   3. THE VOCABULARY IS VISIBLE. Hiding it behind the right button, as the
-//      previous version did, is hiding it: nobody right-clicks a word to find
-//      out that a list of words exists.
+// ONE CLICK (a real widget in the cell, never a delegate) opens a popover:
+// the presets on top as chips — tap one and it is written — and a free-text
+// field under them, Enter writes, Esc or a click outside closes without
+// writing. A delegate on a double click looked right and was WRONG here,
+// because a double click on a row of this table already means "put this
+// event on air", and with "in output" on that reaches the Program. Editing
+// a comment must never be able to do that, and a widget in the cell is what
+// guarantees it: the table never sees the first click at all.
 //
-// So: a flat line edit that takes a caret on the first click, and beside it a
-// chooser that opens the list on ITS first click. Neither has a frame until the
-// pointer is over the cell, which is where a frame says something.
-QWidget *MultiReplayDock::buildNoteCell(int eventId, const std::string &note,
-					const std::vector<std::string> &presets)
+// The popover reads the live vocabulary when it OPENS (Config presets +
+// this session's words), so the cell carries no vocabulary and no version:
+// a word typed on another event cannot make this one stale.
+//
+// The rebuild guard is refreshEvents' own: a Qt::Popup sets
+// QApplication::activePopupWidget(), and while one is up the rebuild
+// defers (eventsDirty_) instead of deleting the table out from under the
+// popover — the "dropdown closes too fast" trap, same as the editor before.
+QWidget *MultiReplayDock::buildNoteCell(int eventId, const std::string &note)
 {
 	// PARENTLESS until setCellWidget takes it: the dock's style sheet is
 	// resolved for a widget the moment it is given a parent inside the dock,
-	// so building the pair detached polishes the subtree once.
+	// so building detached polishes the subtree once.
 	auto *w = new QWidget;
 	w->setObjectName(QStringLiteral("mrNoteCell"));
 	auto *h = new QHBoxLayout(w);
 	h->setContentsMargins(2, 0, 0, 0);
 	h->setSpacing(0);
 
-	auto *cm = new QLineEdit(w);
-	cm->setObjectName(QStringLiteral("mrAngleNote"));
-	cm->setToolTip(obs_module_text("Dock.CamNoteHint"));
-	cm->setPlaceholderText(kNoNote);
-	cm->setAlignment(Qt::AlignCenter);
-	cm->setFrame(false);
-	// NO CONTEXT MENU. Cut/copy/paste on a one-word field is three entries
-	// nobody came for, and the vocabulary - the only list worth offering here -
-	// is on the chooser beside it where it can be seen.
-	cm->setContextMenuPolicy(Qt::NoContextMenu);
-	h->addWidget(cm, 1);
-
-	// The chooser. A glyph rather than a word: it is 14 px wide and the words
-	// it offers are in the list it opens.
-	auto *pick = new QPushButton(w);
-	pick->setObjectName(QStringLiteral("mrNotePick"));
-	pick->setToolTip(obs_module_text("Dock.CamNoteHint"));
-	pick->setCursor(Qt::PointingHandCursor);
-	pick->setFocusPolicy(Qt::NoFocus);
-	pick->setFixedWidth(14);
-	setKeyIcon(pick, Icon::More, tintsFor(sc()), 10);
-	h->addWidget(pick, 0);
+	auto *tx = new QPushButton(w);
+	tx->setObjectName(QStringLiteral("mrNoteText"));
+	tx->setToolTip(obs_module_text("Dock.CamNoteHint"));
+	tx->setCursor(Qt::PointingHandCursor);
+	tx->setFocusPolicy(Qt::NoFocus);
+	tx->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+	tx->setText(note.empty() ? kNoNote
+				 : QString::fromStdString(note));
+	h->addWidget(tx, 1);
 
 	w->setProperty("mrEventId", eventId);
-	// A cell records the vocabulary it was built with: a word typed on another
-	// event makes this one stale, because its list would be missing it.
-	w->setProperty("mrVocab", (qulonglong)commentVocabVersion_);
-
-	connect(pick, &QPushButton::clicked, this, [this, cm, presets, pick]() {
-		if (refreshing_)
-			return;
-		QMenu m(pick);
-		QStringList words;
-		for (const auto &p : presets)
-			words << QString::fromStdString(p);
-		for (const QString &s : sessionComments_)
-			if (!words.contains(s))
-				words << s;
-		// "No comment" is a choice and not a gap: an operator who marked
-		// the wrong thing needs a way back to blank that is not select-all
-		// and delete.
-		QAction *none = m.addAction(kNoNote);
-		connect(none, &QAction::triggered, cm,
-			[cm]() { cm->setText(QString()); });
-		if (!words.isEmpty())
-			m.addSeparator();
-		for (const QString &t : words) {
-			QAction *a = m.addAction(t);
-			connect(a, &QAction::triggered, cm,
-				[cm, t]() { cm->setText(t); });
-		}
-		m.exec(pick->mapToGlobal(QPoint(0, pick->height())));
-	});
-
-	// A TAG REACHES THE STORE THE MOMENT IT IS ON SCREEN, whichever way it got
-	// there — typed or taken off the list. It fires per keystroke, and that is
-	// affordable because the table refuses to rebuild while a line edit inside
-	// it has focus (see refreshEvents). The comparison keeps even that honest:
-	// re-writing the same text would bump the store's version for nothing.
-	connect(cm, &QLineEdit::textChanged, this,
-		[this, eventId](const QString &text) {
-			if (refreshing_)
-				return;
-			const std::string want = text.trimmed().toStdString();
-			auto &store = EventStore::instance();
-			if (store.description(eventId) == want)
-				return;
-			store.setDescription(eventId, want);
-		});
-	// Finishing the edit is what promotes a word to this session's list: it is
-	// the point at which the operator has decided on it. Doing it per keystroke
-	// would offer "G", "Go" and "Gol" on every other row.
-	connect(cm, &QLineEdit::editingFinished, this, [this, cm]() {
-		if (refreshing_)
-			return;
-		rememberComment(cm->text().trimmed());
-	});
-
-	cm->setText(QString::fromStdString(note));
+	connect(tx, &QPushButton::clicked, this,
+		[this, tx, eventId]() { openNotePopover(tx, eventId); });
 	return w;
 }
 
@@ -4762,16 +4683,101 @@ QWidget *MultiReplayDock::buildNoteCell(int eventId, const std::string &note,
 bool MultiReplayDock::updateNoteCell(QWidget *cell, int eventId,
 				     const std::string &note)
 {
-	if (!cell || cell->property("mrEventId").toInt() != eventId ||
-	    cell->property("mrVocab").toULongLong() != commentVocabVersion_)
+	if (!cell || cell->property("mrEventId").toInt() != eventId)
 		return false;
-	auto *cm = cell->findChild<QLineEdit *>(QStringLiteral("mrAngleNote"));
-	if (!cm)
+	auto *tx = cell->findChild<QPushButton *>(
+		QStringLiteral("mrNoteText"));
+	if (!tx)
 		return false;
-	const QString noteQ = QString::fromStdString(note);
-	if (cm->text() != noteQ)
-		cm->setText(noteQ);
+	const QString want =
+		note.empty() ? kNoNote : QString::fromStdString(note);
+	if (tx->text() != want)
+		tx->setText(want);
 	return true;
+}
+
+void MultiReplayDock::openNotePopover(QWidget *anchor, int eventId)
+{
+	if (refreshing_ || !anchor)
+		return;
+	// ONE popover: a second click while it is open is a no-op, not a
+	// second popover — the open one already sits under this cell.
+	if (findChild<QFrame *>(QStringLiteral("mrNotePopover")))
+		return;
+	auto &store = EventStore::instance();
+	const QString current =
+		QString::fromStdString(store.description(eventId));
+
+	// The live vocabulary: the configured presets, then this session's
+	// own words. Read ONCE here — one whole-Config copy per popover, not
+	// per cell per rebuild as the old arrangement did.
+	QStringList words;
+	for (const auto &p : ReplayCore::instance().getConfig().commentPresets) {
+		const QString w = QString::fromStdString(p);
+		if (!w.isEmpty() && !words.contains(w))
+			words << w;
+	}
+	for (const QString &s : sessionComments_)
+		if (!words.contains(s))
+			words << s;
+
+	auto *pop = new QFrame(this, Qt::Popup);
+	pop->setObjectName(QStringLiteral("mrNotePopover"));
+	pop->setAttribute(Qt::WA_DeleteOnClose);
+	auto *v = new QVBoxLayout(pop);
+	v->setContentsMargins(6, 6, 6, 6);
+	v->setSpacing(6);
+
+	// ONE write to the store, compared with what is there so the version
+	// bump stays honest; then the popover goes away and the table repaints.
+	auto commit = [this, eventId](const QString &text) {
+		const std::string want = text.trimmed().toStdString();
+		auto &st = EventStore::instance();
+		if (st.description(eventId) == want)
+			return;
+		st.setDescription(eventId, want);
+	};
+	QList<QWidget *> chips;
+	for (const QString &t : words) {
+		auto *chip = new QPushButton(t, pop);
+		chip->setObjectName(QStringLiteral("mrNoteChip"));
+		chip->setCursor(Qt::PointingHandCursor);
+		chip->setFocusPolicy(Qt::NoFocus);
+		// No mrKey: popover chips are menu entries, not panel keys —
+		// one mrKey per word could not stay unique across opens.
+		connect(chip, &QPushButton::clicked, this,
+			[this, pop, commit, t]() {
+				commit(t);
+				pop->close();
+				refreshEvents();
+			});
+		chips << chip;
+	}
+	if (!chips.isEmpty())
+		v->addWidget(flowBand(pop, chips, 5));
+
+	auto *field = new QLineEdit(pop);
+	field->setObjectName(QStringLiteral("mrNoteField"));
+	field->setPlaceholderText(
+		QString::fromUtf8(obs_module_text("Dock.NotePlaceholder")));
+	field->setText(current);
+	field->selectAll();
+	connect(field, &QLineEdit::returnPressed, this,
+		[this, pop, field, commit]() {
+			commit(field->text());
+			if (!field->text().trimmed().isEmpty())
+				rememberComment(field->text().trimmed());
+			pop->close();
+			refreshEvents();
+		});
+	// Esc and outside clicks close a Qt::Popup by default, with no write:
+	// that path needs no code, which is what makes it trustworthy.
+	v->addWidget(field);
+
+	pop->adjustSize();
+	pop->move(anchor->mapToGlobal(QPoint(0, anchor->height())));
+	pop->show();
+	field->setFocus(Qt::PopupFocusReason);
 }
 
 QWidget *MultiReplayDock::buildAngleCell(int eventId, int cam0, bool on,
@@ -4830,14 +4836,12 @@ QWidget *MultiReplayDock::buildAngleCell(int eventId, int cam0, bool on,
 	// this table and so worth saying on none of them, and what it costs is
 	// the row height for the whole list.
 	//
-	// FIXED WIDTH so the column does not dance as "--" becomes "125": eight
+	// FIXED WIDTH so the column does not dance as "" becomes "125": eight
 	// rows of angles are scanned down, and a value that moves sideways between
-	// rows is read twice. 22px: "125" in 11px Plex Mono (0.6em advance) is
-	// 19.8 plus the sheet's 1px side padding — and 12 tick + 2 gap + 22 + 2
+	// rows is read twice. 22px: "125" in 10px Plex Mono is 18 plus the
+	// sheet's 1px side padding — and 12 tick + 2 gap + 22 + 2
 	// margins is 38 of the K1 cell's 40, with the tick itself pinned to 12
-	// by the sheet (an unpinned textless box measures ~24 of chrome). The
-	// old 44px no longer fits anywhere: it was sized for "100%" with a
-	// percent sign the cell no longer prints.
+	// by the sheet (an unpinned textless box measures ~24 of chrome).
 	auto *sp = new QPushButton(w);
 	sp->setObjectName("mrAngleSpeed");
 	sp->setToolTip(obs_module_text("Dock.AngleSpeedHint"));
@@ -4845,14 +4849,15 @@ QWidget *MultiReplayDock::buildAngleCell(int eventId, int cam0, bool on,
 	sp->setFocusPolicy(Qt::NoFocus);
 	sp->setFixedWidth(22);
 	const int pct = speed >= 0 ? (int)std::lround(speed * 100.0) : -1;
-	// "--", NOT "100%", for the default (Angelo, 2026-08-17). The value means
-	// "no override; the slider decides", and printing it as a number lies
-	// whenever the slider is not at 100: with the slider on 25 the cell read
-	// 100% while the clip played at a quarter speed. A number the operator can
-	// read is worth having, but not a number that can be wrong. No % sign in
-	// the cell (artifact tabella K1): the percent lives in the panel's speed
-	// readout, where the slider it belongs to is.
-	sp->setText(pct > 0 ? QString::number(pct) : QStringLiteral("--"));
+	// TAB K1 (E3): empty, NOT "--", for the default (Angelo, 2026-08-17,
+	// confirmed by the artifact: the speed prints only on override). The
+	// value means "no override; the slider decides", and printing it as a
+	// number lies whenever the slider is not at 100: with the slider on 25
+	// the cell read 100% while the clip played at a quarter speed. A number
+	// the operator can read is worth having, but not a number that can be
+	// wrong. No % sign in the cell (artifact tabella K1): the percent lives
+	// in the panel's speed readout, where the slider it belongs to is.
+	sp->setText(pct > 0 ? QString::number(pct) : QString());
 	sp->setProperty("mrPct", pct);
 	// Grey for "the slider decides", the panel's ordinary text for an override.
 	// A PROPERTY, not a per-widget style sheet: setStyleSheet on a single widget
@@ -4947,9 +4952,9 @@ void MultiReplayDock::tintSelectedCells()
 		};
 		if (QWidget *nc = events_->cellWidget(r, kColNote)) {
 			mark(nc);
-			if (auto *le = nc->findChild<QLineEdit *>(
-				    QStringLiteral("mrAngleNote")))
-				repolish(le);
+			if (auto *tx = nc->findChild<QPushButton *>(
+				    QStringLiteral("mrNoteText")))
+				repolish(tx);
 		}
 		for (size_t i = 0; i < camCols_.size(); i++) {
 			QWidget *cell = events_->cellWidget(
@@ -5159,14 +5164,8 @@ void MultiReplayDock::rememberComment(const QString &text)
 	sessionComments_.append(t);
 	while (sessionComments_.size() > kMaxSessionComments)
 		sessionComments_.removeFirst();
-	// The cells are rebuilt from this list on the next refresh, and a new
-	// comment has to reach the OTHER rows, so ask for one — and say that the
-	// VOCABULARY moved, not just the table. Cells are reused in place now, and
-	// a reused cell keeps the list it was built with: without this the word
-	// just typed would reach every other row only when something else happened
-	// to force those cells to be rebuilt, which is exactly the kind of "it
-	// works, sometimes" the reuse must not introduce.
-	commentVocabVersion_++;
+	// The popover reads this list live when it opens, so a new word is
+	// simply there next time — no version to bump, no cell to invalidate.
 	commentsDirty_ = true;
 	obs_log(LOG_INFO, "[dock] comment '%s' added to this session's list (%d)",
 		t.toUtf8().constData(), (int)sessionComments_.size());

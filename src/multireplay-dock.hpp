@@ -452,6 +452,11 @@ public:
 	// widget is the point — the rebuild it triggers is what is on trial.
 	void setSearchText(const QString &text);
 
+	// Rebuild the event table now, as poll() would on the next beat. For the
+	// automated gate: proving a rebuild defers under an open popover needs
+	// the rebuild itself driven, not the clock that usually triggers it.
+	void refreshEventsForGate() { refreshEvents(); }
+
 	// What the preview is showing: true = the replay (a clip, a scrub review,
 	// or the frame the last one ended on), false = the live camera mirror.
 	//
@@ -843,27 +848,26 @@ private:
 	// rather than a stylesheet: item text goes through the view's delegate.
 	static void centreComboItems(QComboBox *cb);
 
-	// `presets` is the operator's comment vocabulary, read ONCE by the caller
-	// and handed down. Reading it here meant a whole-Config copy under the
-	// core mutex per cell — per event, per camera — and that was the longest
-	// thing the dock's poll did on a real session. See buildAngleCell.
+	// Angle cells take their three values as arguments, never a Config read:
+	// getConfig() copies the whole Config under the core mutex, and doing
+	// that per event per camera was the longest thing the dock's poll did
+	// on a real session. See buildAngleCell.
 	QWidget *buildAngleCell(int eventId, int cam0, bool on, double speed);
-	// THE EVENT COMMENT, one per row, right of the duration: text at rest, a
-	// caret on the first click and the vocabulary on a chooser beside it.
-	QWidget *buildNoteCell(int eventId, const std::string &note,
-			       const std::vector<std::string> &presets);
+	// THE EVENT COMMENT, one per row, right of the duration (TAB W2, D2):
+	// plain text at rest; one click opens the chip popover below. The
+	// popover reads the live vocabulary when it opens, so no vocabulary is
+	// passed down and no version is tracked on the cell.
+	QWidget *buildNoteCell(int eventId, const std::string &note);
 	bool updateNoteCell(QWidget *cell, int eventId, const std::string &note);
+	// The chip popover: presets + session words as one-tap chips over a
+	// free-text field. A QFrame with Qt::Popup, child of the dock, named
+	// mrNotePopover — never a menu.
+	void openNotePopover(QWidget *anchor, int eventId);
 	// The fast path: write the three values into a cell that already belongs
 	// to this event and angle. False = it does not, and the caller must build
 	// a new one. See the note on the function.
 	bool updateAngleCell(QWidget *cell, int eventId, int cam0, bool on,
 			     double speed);
-	// Bumped whenever the list of comments a cell would offer changes — a word
-	// typed on any event, or the presets edited in Settings. A cell records the
-	// version it was built with; a newer one means it cannot be reused, because
-	// its list would be missing the word just added.
-	uint64_t commentVocabVersion_ = 0;
-	std::vector<std::string> lastCommentPresets_;
 
 	// --- trimming an event already marked --------------------------------
 	// A live mark is late by definition: the operator saw the action first.

@@ -420,7 +420,16 @@ enum class Lane { Left, Centre, Right };
 // has eight slots to show.
 class FlowLayout : public QLayout {
 public:
-	explicit FlowLayout(QWidget *parent, int hSpacing = 6, int vSpacing = 4);
+	// `floorW`: the narrowest width this band is ever laid out at. Qt
+	// evaluates a height-for-width minimum at the layout's minimum width,
+	// and for a wrapping band that is the fully-collapsed wrap — five lines
+	// where two will ever be seen — pinning every splitter pane above it
+	// (measured: the pictures/list divider lost 100 px of travel). Naming
+	// the real floor (the Tall column for the tools bar) evaluates the wrap
+	// that is actually worn instead. Default 0: every existing band keeps
+	// its measure.
+	explicit FlowLayout(QWidget *parent, int hSpacing = 6, int vSpacing = 4,
+			    int floorW = 0);
 	~FlowLayout() override;
 
 	void addItem(QLayoutItem *item) override;
@@ -441,6 +450,7 @@ private:
 	QList<QLayoutItem *> items_;
 	int hSpace_;
 	int vSpace_;
+	int floorW_;
 };
 
 // A widget whose only job is to hold a FlowLayout and report its own height as a

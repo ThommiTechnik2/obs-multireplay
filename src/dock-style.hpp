@@ -362,19 +362,17 @@ inline Scheme schemeFor(ThemeChoice choice, const QPalette &pal)
 	s.fnBg = hex(mix(bg, fnc, 0.22 * wash));
 	s.seekBar = hex(mix(hl, fg, 0.10));
 
-	// The selected row. In Broadcast it is the reference controller's orange,
-	// which is part of what that scheme IS; anywhere else it is the theme's own
-	// highlight, because a row selected in one colour in the table and another
-	// in every OBS list is a panel that looks bolted on.
 	if (choice == ThemeChoice::Broadcast) {
 		s.sink2 = "#00121C";
 		s.sinkAlt = "#002A42";
-		s.rowSel = "#DB5026";
-		s.rowSelText = "#ffffff";
-	} else {
-		s.rowSel = hex(hl);
-		s.rowSelText = hex(hlText);
 	}
+	// The selected row. TAB D1, decided 2026-09-11: orange #DB5026 in EVERY
+	// theme — SPEC wins over TAB's navy #20304a, and the decision names one
+	// colour, not one per theme. Luminance-adapted like any signal (on a
+	// dark panel signalOn leaves #DB5026 exactly where it is), ink white:
+	// the adapted orange stays dark enough for it on light panels too.
+	s.rowSel = hex(signalOn(QColor("#DB5026"), bg, dark, 0));
+	s.rowSelText = "#ffffff";
 	return s;
 }
 
@@ -1382,36 +1380,47 @@ QTableWidget#mrEvents QComboBox:hover, QTableWidget#mrEvents QLineEdit:hover {
 QTableWidget#mrEvents QComboBox:focus, QTableWidget#mrEvents QLineEdit:focus {
 	background: @raise1@; border-color: @accent@;
 }
-/* THE COMMENT CELL. Text at rest and a chooser beside it, and both take the
-   FIRST click - which is not a nicety here: a double click on a row of this
-   table means "put this event on air", so an editor that opened on one could
-   reach the Program from a cell whose whole job is a word.
+/* THE COMMENT CELL (TAB W2, D2 decided 2026-09-11). At rest PLAIN TEXT:
+   one flat key, no frame, no chooser beside it — a list of sixty comments
+   is sixty words, not sixty boxes. ONE click on the word opens the chip
+   popover below; a double click on the row still means "put this event on
+   air", so an editor that opened on one could reach the Program from a
+   cell whose whole job is a word.
 
-   The frame belongs to the CELL and appears when the pointer is over it, so a
-   list of sixty comments is sixty words rather than sixty boxes. */
+   The frame belongs to the CELL and appears when the pointer is over it, so
+   the word stays findable without wearing chrome at rest. */
 QTableWidget#mrEvents QWidget#mrNoteCell { background: transparent; }
 QTableWidget#mrEvents QWidget#mrNoteCell:hover {
 	background: @raise1@;
 }
-/* THE ROW'S TYPE SIZE, STATED. It used to say "no font-size here" and rely on
-   inheriting the table's — which is right in intent and did not work, because
-   the rule above matches this line edit too and was setting one. Saying nothing
-   is not the same as saying the right thing when another rule is talking. */
-QTableWidget#mrEvents QLineEdit#mrAngleNote {
+QTableWidget#mrEvents QPushButton#mrNoteText {
 	background: transparent; border: 0; padding: 0px 2px;
 	min-height: @cellInput@px; color: @text@;
 	font-family: "@ffMono@"; font-size: 11px;
 }
-QTableWidget#mrEvents QWidget#mrNoteCell[sel="true"] QLineEdit#mrAngleNote,
+QTableWidget#mrEvents QWidget#mrNoteCell[sel="true"] QPushButton#mrNoteText,
 QTableWidget#mrEvents QPushButton#mrAngleSpeed[sel="true"] {
 	color: @rowSelText@;
 }
-QTableWidget#mrEvents QPushButton#mrNotePick {
-	background: transparent; border: 0; padding: 0;
-	min-height: @cellInput@px;
+/* THE NOTE POPOVER (TAB W2): preset chips (TAB .apill — 1px border,
+   3px radius, 0/5 padding, mono a step under the row) over a free-text
+   field (1px border, 3px radius). A QFrame with Qt::Popup, never a menu. */
+QWidget#mrNotePopover {
+	background: @raise1@; border: 1px solid @borderHi@;
+	border-radius: 6px; padding: 6px;
 }
-QTableWidget#mrEvents QPushButton#mrNotePick:hover {
-	background: @raise2@; border-radius: 2px;
+QWidget#mrNotePopover QPushButton#mrNoteChip {
+	background: transparent; color: @text@;
+	border: 1px solid @borderHi@; border-radius: 3px;
+	padding: 0px 5px; font-family: "@ffMono@"; font-size: 10px;
+}
+QWidget#mrNotePopover QPushButton#mrNoteChip:hover {
+	border-color: @text@;
+}
+QWidget#mrNotePopover QLineEdit#mrNoteField {
+	background: @sink2@; border: 1px solid @borderHi@;
+	border-radius: 3px; padding: 2px 4px; color: @text@;
+	font-family: "@ffMono@"; font-size: 11px;
 }
 
 /* THE SPEED IS A LABEL, which is what it was before it became a drop-down and
@@ -1507,7 +1516,7 @@ QLabel#mrSpeedTick { background: @textKey@; border: 0; }
 
 /* ── event table ───────────────────────────────────────────── */
 QTableWidget#mrEvents {
-	background: @sink2@; alternate-background-color: @sinkAlt@;
+	background: @sink2@;
 	gridline-color: transparent; border: 1px solid @border@;
 	border-bottom-left-radius: 6px; border-bottom-right-radius: 6px;
 	color: @text@; outline: 0;
@@ -1523,11 +1532,12 @@ QTableWidget#mrEvents::item {
 	font-family: "@ffMono@"; font-size: 11px;
 	border-bottom: 1px solid @border@; /* artifact tabella: hairline righe */
 }
-/* Selection is navy, never the whole row in orange (artifact tabella: the
-   orange is reserved for nothing here — PGM has its own stripe+cell). It
-   shares the tab fill: both say "the current thing", in every theme. */
+/* TAB D1 (decided 2026-09-11): the selected row is orange, in every
+   theme — SPEC wins over TAB's navy #20304a. The PGM stripe and the red #
+   cell are painted by the delegate and poll() on top of this, so "on air"
+   stays readable on a selected row. */
 QTableWidget#mrEvents::item:selected {
-	background: @tabBar@; color: @accentText@;
+	background: @rowSel@; color: @rowSelText@;
 }
 /* The per-angle enable box, which in the reference controller IS the cell */
 QTableWidget#mrEvents::indicator {

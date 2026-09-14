@@ -74,6 +74,25 @@ void triangleLeft(QPainterPath &p, qreal x, qreal y, qreal w, qreal h)
 	p.closeSubpath();
 }
 
+// Solid up/down triangles: the barretta's reorder keys (artifact tabella
+// E5, ▲ ▼ .key.sm). Same silhouette family as triangleRight/Left above —
+// the chevrons they replace read as "previous/next clip" beside transport.
+void triangleUp(QPainterPath &p, qreal x, qreal y, qreal w, qreal h)
+{
+	p.moveTo(x, y + h);
+	p.lineTo(x + w / 2, y);
+	p.lineTo(x + w, y + h);
+	p.closeSubpath();
+}
+
+void triangleDown(QPainterPath &p, qreal x, qreal y, qreal w, qreal h)
+{
+	p.moveTo(x, y);
+	p.lineTo(x + w / 2, y + h);
+	p.lineTo(x + w, y);
+	p.closeSubpath();
+}
+
 // A solid triangle with SOFTENED CORNERS, added to both paths so that the
 // round-join stroke following its outline is what rounds it. Written once
 // because the play key and the reverse key sit next to each other, and two
@@ -214,13 +233,11 @@ void buildPaths(Icon id, QPainterPath &fill, QPainterPath &line)
 		break;
 
 	case Icon::MoveUp:
-		line.moveTo(6.5, 14.5);
-		line.lineTo(12, 9);
-		line.lineTo(17.5, 14.5);
+		triangleUp(fill, 6, 7.5, 12, 9);
 		break;
 
 	case Icon::MoveDown:
-		chevronDown(line, 6.5, 9.5, 11, 5.5);
+		triangleDown(fill, 6, 7.5, 12, 9);
 		break;
 
 	case Icon::More:

@@ -27,6 +27,7 @@ extern "C" {
 #include "dock-icons.hpp"
 #include "dock-fonts.hpp" // panel_fonts_are_embedded — the real dock, not the mockup
 #include "dock-probe.hpp" // the geometry the checks measure, shared with the mockup
+#include "dock-style.hpp" // schemeFor: the D1 selection the sheet must wear
 #include "packet-tap.hpp"
 // pathToUtf8: a path handed to FFmpeg is UTF-8, never path::string() (which is
 // the ANSI code page on MSVC).
@@ -1726,17 +1727,17 @@ DockChecks runDockChecks(int firstCam, int secondCam,
 					    idIt->data(Qt::UserRole).toInt() !=
 						    evId)
 						continue;
-					// The comment is a widget again: text at rest,
-					// a caret on the first click. An item would be
-					// edited on a DOUBLE click, and that gesture
-					// already puts the event on air.
+				// The comment is a widget again: plain text at rest
+				// (TAB W2), a chip popover on one click. An item
+				// would be edited on a DOUBLE click, and that
+				// gesture already puts the event on air.
 					if (QWidget *nc = t->cellWidget(
 						    r, MultiReplayDock::kColNote))
-						if (auto *cm =
-							    nc->findChild<QLineEdit *>(
-								    "mrAngleNote"))
+						if (auto *tx =
+							    nc->findChild<QPushButton *>(
+								    "mrNoteText"))
 							c.searchCellNote =
-								cm->text().toStdString();
+								tx->text().toStdString();
 					QWidget *cell = t->cellWidget(
 						r,
 						MultiReplayDock::kColFirstCam);
@@ -4966,12 +4967,12 @@ void runReopenPass(const std::string &outPath)
 	QString layoutForcedModeName;
 	// C5 SHAPES — artifact «quattro layout» (2c8ded2c): Short stacks the
 	// strip in the left column over a horizontal body split; Tall shows
-	// the panel tabs and hides OUT; presets resize a floating window;
-	// fullscreen stays disabled while docked.
+	// the panel tabs and keeps OUT (E7: the table scrolls); presets resize
+	// a floating window; fullscreen stays disabled while docked.
 	bool layoutShortStacksLeft = false;
 	bool layoutShortSplitsWidth = false;
 	bool layoutTallTabs = false;
-	bool layoutTallHidesOut = false;
+	bool layoutTallKeepsOut = false;
 	bool layoutPresetSizes = false;
 	bool layoutFullscreenNeedsFloat = false;
 	QString layoutShapesNote;
@@ -5394,8 +5395,8 @@ void runReopenPass(const std::string &outPath)
 				}
 				layoutPresetSizes = shortOk && tallOk;
 			}
-			// TALL: tabs, and OUT folds away (IN + Durata already say
-			// where the clip is).
+			// TALL: tabs, and OUT stays visible (E7 — the table scrolls,
+			// no column is ever put away, not even in Tall).
 			floatResize(340, 900, "tall");
 			runOnUi([&]() {
 				auto *tabs = dock->findChild<QTabBar *>(
@@ -5405,19 +5406,19 @@ void runReopenPass(const std::string &outPath)
 				layoutTallTabs =
 					dock->panelMode() == PanelMode::Tall &&
 					tabs && tabs->isVisible();
-				layoutTallHidesOut =
+				layoutTallKeepsOut =
 					dock->panelMode() == PanelMode::Tall &&
 					events &&
-					events->isColumnHidden(
+					!events->isColumnHidden(
 						MultiReplayDock::kColOut);
 				layoutShapesNote += QString(
-					" tall mode=%1 tabs=%2 outHidden=%3; ")
+					" tall mode=%1 tabs=%2 outKept=%3; ")
 						.arg(QString::fromLatin1(
 							panelModeName(
 								dock->panelMode())))
 						.arg(tabs && tabs->isVisible())
 						.arg(events &&
-						     events->isColumnHidden(
+						     !events->isColumnHidden(
 							     MultiReplayDock::
 								     kColOut));
 			});
@@ -6105,8 +6106,8 @@ void runReopenPass(const std::string &outPath)
 					}
 				}
 			}
-			// ── FIXED COLUMNS — CF0 (44/92/92/58/130) + one camera
-			// column each at 40px (K1 decided cell: 12px tick + badge —
+			// ── FIXED COLUMNS — CF0 (44/92/92/64/130) + one camera
+			// column each at 44px (K1 decided cell: 12px tick + badge —
 			// not the density figures' 30/28, which pair with the
 			// rejected dot variant and crushed the tick out). The drawing
 			// declares the measure; this reads it back off the real header.
@@ -6622,6 +6623,12 @@ void runReopenPass(const std::string &outPath)
 	bool panelBandCentred = false;
 	bool monitorRowContiguous = false;
 	bool shortBaysOverSlots = false;
+	bool tableNoZebra = false;
+	bool tableSelectionD1 = false;
+	bool tableK1NoDash = false;
+	bool tableNoteWrites = false;
+	bool tableNoteSurvives = false;
+	QString tableNoteDetail;
 	bool layoutToolbarOnTop = false;
 	bool layoutNoStatusRow = false;
 	bool noticeInMarcaFooter = false;
@@ -7295,6 +7302,138 @@ void runReopenPass(const std::string &outPath)
 			"[selftest] reopen: layout_short_bays_over_slots — %d of %d "
 			"short shots with A|B over the slots",
 			shotsShortBaysOk, shotsShortBaysMeasured);
+		// E1–E8, D1, D2 (Task 12): the event table on the dock itself.
+		// The shots above judged it by looking; this drives the real
+		// widgets — the popover included, opened for real on a real cell.
+		runOnUi([&]() {
+			using namespace multireplay::probe;
+			auto *t = dock->findChild<QTableWidget *>(
+				QStringLiteral("mrEvents"));
+			// E1: no zebra.
+			tableNoZebra = tableHasNoZebra(t);
+			// E2/D1: the resolved sheet selects in the scheme's
+			// rowSel — computed for the theme the shots just wore
+			// (the loop above ends on the last artifact theme).
+			const multireplay::Scheme sc =
+				multireplay::schemeFor(
+					(multireplay::ThemeChoice)
+						ReplayCore::instance()
+							.getConfig()
+							.uiTheme,
+					QApplication::palette());
+			tableSelectionD1 = sheetSelectsRow(dock->styleSheet(),
+							   sc.rowSel);
+			// E3: no speed badge anywhere prints "--" (that word is
+			// the speed menu's first entry, not a cell state).
+			tableK1NoDash = t && t->rowCount() > 0;
+			if (tableK1NoDash) {
+				for (int r = 0; r < t->rowCount(); r++) {
+					if (cellSpeedText(
+						    t, r,
+						    MultiReplayDock::
+							    kColFirstCam) ==
+					    QStringLiteral("--")) {
+						tableK1NoDash = false;
+						break;
+					}
+				}
+			}
+			tableNoteDetail = QStringLiteral(
+				"zebra %1 sel %2 k1 %3 rows %4")
+						  .arg(tableNoZebra)
+						  .arg(tableSelectionD1)
+						  .arg(tableK1NoDash)
+						  .arg(t ? t->rowCount() : -1);
+			if (!t || t->rowCount() == 0) {
+				tableNoteDetail += QStringLiteral(" (no rows)");
+				return;
+			}
+			// A row whose comment is empty, so the write is visible.
+			int row = -1, id = -1;
+			for (int r = 0; r < t->rowCount(); r++) {
+				QTableWidgetItem *it = t->item(
+					r, MultiReplayDock::kColId);
+				const int eid =
+					it ? it->data(Qt::UserRole).toInt()
+					   : -1;
+				if (eid > 0 &&
+				    EventStore::instance()
+					    .description(eid)
+					    .empty()) {
+					row = r;
+					id = eid;
+					break;
+				}
+			}
+			if (row < 0) {
+				tableNoteDetail +=
+					QStringLiteral(" (no empty-note row)");
+				return;
+			}
+			dock->rememberComment(QStringLiteral("Gol"));
+			QWidget *nc = t->cellWidget(
+				row, MultiReplayDock::kColNote);
+			QPushButton *tx = nc ? nc->findChild<QPushButton *>(
+						       QStringLiteral(
+							       "mrNoteText"))
+					     : nullptr;
+			if (!tx) {
+				tableNoteDetail +=
+					QStringLiteral(" (no mrNoteText)");
+				return;
+			}
+			// E4/D2: one click opens the chip popover.
+			tx->click();
+			QFrame *pop = dock->findChild<QFrame *>(
+				QStringLiteral("mrNotePopover"));
+			if (!pop || !notePopoverHasChips(pop)) {
+				tableNoteDetail +=
+					QStringLiteral(" (no popover/chips)");
+				if (pop)
+					pop->close();
+				return;
+			}
+			// A rebuild while open must defer, not delete it.
+			dock->refreshEventsForGate();
+			QFrame *pop2 = dock->findChild<QFrame *>(
+				QStringLiteral("mrNotePopover"));
+			tableNoteSurvives = pop2 && pop2->isVisible();
+			if (!tableNoteSurvives) {
+				tableNoteDetail += QStringLiteral(
+					" (rebuild ate the popover)");
+				return;
+			}
+			// Tap the Gol chip, reread the store.
+			QPushButton *gol = nullptr;
+			for (QPushButton *c :
+			     pop2->findChildren<QPushButton *>())
+				if (c->text() == QStringLiteral("Gol")) {
+					gol = c;
+					break;
+				}
+			if (!gol) {
+				tableNoteDetail +=
+					QStringLiteral(" (no Gol chip)");
+				pop2->close();
+				return;
+			}
+			gol->click();
+			tableNoteWrites =
+				EventStore::instance().description(id) ==
+				"Gol";
+			tableNoteDetail += tableNoteWrites
+				? QStringLiteral(" row %1 -> Gol").arg(row)
+				: QStringLiteral(" store still '%1'").arg(
+					  QString::fromStdString(
+						  EventStore::instance()
+							  .description(id)));
+		});
+		obs_log((tableNoZebra && tableSelectionD1 && tableK1NoDash &&
+			 tableNoteWrites && tableNoteSurvives)
+				? LOG_INFO
+				: LOG_ERROR,
+			"[selftest] reopen: table_conforms — %s",
+			tableNoteDetail.toUtf8().constData());
 		obs_log(artifactSetCaptured ? LOG_INFO : LOG_ERROR,
 			"[selftest] reopen: artifact set — %d of 16 shots written "
 			"with data (band on air, 6 rows) to %s (project re-opened "
@@ -7328,12 +7467,14 @@ void runReopenPass(const std::string &outPath)
 		  monitorBaysArePeers && tableToolsOrdered &&
 		  tableToolsSeparated && tableEventCountSane &&
 		  tableColumnsFixed && tableSortIsCompact &&
+		  tableNoZebra && tableSelectionD1 && tableK1NoDash &&
+		  tableNoteWrites && tableNoteSurvives &&
 		  panelShares4060 && panelHeaders34 && panelTransport40 &&
 		  panelTrim6060 && panelClip42 && panelBayLabel && panelModi152 &&
 		  panelSlider120 && panelTickAt75 && panelReadoutPct &&
 		  panelPlayNow42x78 && panelModesNotCut &&
 		  layoutShortStacksLeft && layoutShortSplitsWidth &&
-		  layoutTallTabs && layoutTallHidesOut && layoutPresetSizes &&
+			  layoutTallTabs && layoutTallKeepsOut && layoutPresetSizes &&
 		  layoutFullscreenNeedsFloat && artifactSetCaptured &&
 		  layoutToolbarOnTop && layoutNoStatusRow &&
 		  noticeInMarcaFooter && tallMarcaTabFlags && panelHeadersCentred;
@@ -7395,7 +7536,7 @@ void runReopenPass(const std::string &outPath)
 	obs_data_set_bool(checks, "layout_short_splits_width",
 			  layoutShortSplitsWidth);
 	obs_data_set_bool(checks, "layout_tall_tabs", layoutTallTabs);
-	obs_data_set_bool(checks, "layout_tall_hides_out", layoutTallHidesOut);
+	obs_data_set_bool(checks, "layout_tall_keeps_out", layoutTallKeepsOut);
 	obs_data_set_bool(checks, "layout_preset_sizes", layoutPresetSizes);
 	obs_data_set_bool(checks, "layout_fullscreen_needs_float",
 			  layoutFullscreenNeedsFloat);
@@ -7482,6 +7623,14 @@ void runReopenPass(const std::string &outPath)
 			  tableColumnsFixed);
 	obs_data_set_bool(checks, "table_sort_is_compact",
 			  tableSortIsCompact);
+	// TAB E1–E8, D1, D2 (Task 12): no zebra, D1 selection, K1 without "--",
+	// W2 popover writes, rebuild defers under it.
+	obs_data_set_bool(checks, "table_no_zebra", tableNoZebra);
+	obs_data_set_bool(checks, "table_selection_d1", tableSelectionD1);
+	obs_data_set_bool(checks, "table_k1_no_dash", tableK1NoDash);
+	obs_data_set_bool(checks, "table_note_popover_writes", tableNoteWrites);
+	obs_data_set_bool(checks, "table_note_survives_rebuild",
+			  tableNoteSurvives);
 	obs_data_set_bool(checks, "panel_shares_40_60", panelShares4060);
 	obs_data_set_bool(checks, "panel_headers_34", panelHeaders34);
 	// TAS .sub .hd (K1, K2, R1): a rule not a box, MARCA's group and REVIEW's

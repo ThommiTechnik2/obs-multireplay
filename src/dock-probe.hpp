@@ -15,11 +15,14 @@
 #include <QHash>
 #include <QImage>
 #include <QLabel>
+#include <QLineEdit>
 #include <QList>
 #include <QPoint>
+#include <QPushButton>
 #include <QRect>
 #include <QString>
 #include <QTabBar>
+#include <QTableWidget>
 #include <QWidget>
 
 #include <algorithm>
@@ -940,6 +943,72 @@ inline bool monitorRowConform(const QWidget *panel, const QList<QWidget *> &pics
 				  .arg(overlap ? QStringLiteral(" OVERLAP")
 					       : QStringLiteral(""));
 	return pairs > 0 && !overlap && worstGap <= 8 && worstFill <= 12;
+}
+
+// ── EVENT TABLE (E1–E8, D1, D2) ───────────────────────────────────────────
+// TAB «la tabella eventi»: no zebra (.er — only the selected row wears a
+// fill), selection in D1 orange, K1 speed only on override, W2 plain-text
+// comment with a chip popover. One copy for the mockup and the gate.
+
+// TAB .er (E1): rows without alternation — only the selected one has a fill.
+inline bool tableHasNoZebra(const QTableWidget *t)
+{
+	return t && !t->alternatingRowColors();
+}
+
+// TAB D1 (E2): the resolved sheet's answer for the selected row. `hex` is
+// the scheme's rowSel, so every theme answers its own adapted orange.
+inline bool sheetSelectsRow(const QString &sheet, const QString &hex)
+{
+	const int at = sheet.indexOf(
+		QStringLiteral("QTableWidget#mrEvents::item:selected"));
+	return at >= 0 &&
+	       sheet.mid(at, 400).contains(hex, Qt::CaseInsensitive);
+}
+
+// TAB K1 (E3): the speed badge prints only an override. The no-override
+// state is the empty string — never "--" (that word lives in the speed
+// menu, where it IS a choice). `camCol` is the table's first camera
+// column; the caller owns the column numbers, this header stays free of
+// the dock type.
+inline QString cellSpeedText(const QTableWidget *t, int row, int camCol)
+{
+	if (!t)
+		return QStringLiteral("?");
+	if (QWidget *cell = t->cellWidget(row, camCol))
+		if (const QPushButton *sp = cell->findChild<QPushButton *>(
+			    QStringLiteral("mrAngleSpeed")))
+			return sp->text();
+	return QStringLiteral("?");
+}
+
+// TAB W2, D2 (E4): at rest the comment cell is plain text — one flat key,
+// no frame, no chooser beside it.
+inline bool noteCellIsPlainText(const QWidget *cell)
+{
+	if (!cell)
+		return false;
+	if (!cell->findChild<QPushButton *>(QStringLiteral("mrNoteText")))
+		return false;
+	if (cell->findChild<QLineEdit *>())
+		return false;
+	if (cell->findChild<QPushButton *>(QStringLiteral("mrNotePick")))
+		return false;
+	return true;
+}
+
+// TAB W2, D2: the popover one click opens — preset chips over a free-text
+// field, recognised by name so the gate finds the dock's and the mockup
+// check finds its stand-in's.
+inline bool notePopoverHasChips(const QWidget *popover)
+{
+	if (!popover)
+		return false;
+	if (popover->objectName() != QStringLiteral("mrNotePopover"))
+		return false;
+	if (popover->findChildren<QPushButton *>().isEmpty())
+		return false;
+	return popover->findChild<QLineEdit *>() != nullptr;
 }
 
 } // namespace multireplay::probe

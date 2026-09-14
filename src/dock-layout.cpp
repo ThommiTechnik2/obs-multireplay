@@ -71,8 +71,9 @@ const char *panelModeName(PanelMode m)
 // FlowLayout
 // ---------------------------------------------------------------------------
 
-FlowLayout::FlowLayout(QWidget *parent, int hSpacing, int vSpacing)
-	: QLayout(parent), hSpace_(hSpacing), vSpace_(vSpacing)
+FlowLayout::FlowLayout(QWidget *parent, int hSpacing, int vSpacing,
+			 int floorW)
+	: QLayout(parent), hSpace_(hSpacing), vSpace_(vSpacing), floorW_(floorW)
 {
 	setContentsMargins(0, 0, 0, 0);
 }
@@ -132,8 +133,10 @@ QSize FlowLayout::sizeHint() const
 QSize FlowLayout::minimumSize() const
 {
 	// The widest single item, never the sum: the sum is what makes a band
-	// refuse to wrap and start squeezing again.
-	QSize s(0, 0);
+	// refuse to wrap and start squeezing again — unless the band names a
+	// narrower floor it is actually laid out at (see the ctor): the floor
+	// is what Qt evaluates the height-for-width minimum at.
+	QSize s(floorW_, 0);
 	for (const QLayoutItem *it : items_)
 		s = s.expandedTo(it->minimumSize());
 	const QMargins m = contentsMargins();

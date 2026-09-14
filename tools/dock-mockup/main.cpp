@@ -361,7 +361,7 @@ public:
 		table_->setMinimumHeight(50);
 		table_->setSizePolicy(QSizePolicy::Expanding,
 				      QSizePolicy::Expanding);
-		table_->setAlternatingRowColors(true);
+		table_->setAlternatingRowColors(false); // TAB .er (E1): no zebra
 		// WITH ROWS IN IT, and a TICKED angle among them. An empty table
 		// is the largest area of this panel rendering nothing, and the
 		// tick in an angle cell is drawn from the same file the settings
@@ -370,49 +370,73 @@ public:
 		table_->setHorizontalHeaderLabels(
 			{QStringLiteral("#"), QStringLiteral("In"),
 			 QStringLiteral("Out"), QStringLiteral("Durata"),
-			 QStringLiteral("Commento"), QStringLiteral("1 C1")});
+			 QStringLiteral("Commento"), QStringLiteral("1")});
+		// The full "N Name" one hover away (E8, like the dock).
+		if (QTableWidgetItem *hh = table_->horizontalHeaderItem(5))
+			hh->setToolTip(QStringLiteral("1 C1"));
+		{
+			// FIXED WIDTHS (artifact tabella CF0, E11): the mockup wore
+			// ~100px columns and judged a table it did not have.
+			QHeaderView *hh = table_->horizontalHeader();
+			static const int kW[6] = {44, 92, 92, 64, 130, 44};
+			for (int c = 0; c < 6; c++) {
+				hh->setSectionResizeMode(c,
+							 QHeaderView::Fixed);
+				hh->resizeSection(c, kW[c]);
+			}
+			hh->setMinimumSectionSize(20);
+		}
 		for (int r = 0; r < table_->rowCount(); r++) {
 			const QString id = QStringLiteral("%1").arg(r + 1, 4,
 								   10,
 								   QLatin1Char('0'));
 			table_->setItem(r, 0, new QTableWidgetItem(id));
+			// Timecode with centiseconds (E11, .cc): the dock prints
+			// "1:04:12.70", not ".mmm".
 			table_->setItem(r, 1,
 					new QTableWidgetItem(QStringLiteral(
-						"00:%1.733").arg(11 + r * 7, 2,
-								 10,
-								 QLatin1Char('0'))));
+						"00:%1.%2")
+						.arg(11 + r * 7, 2, 10,
+						     QLatin1Char('0'))
+						.arg((73 + r * 13) % 100, 2,
+						     10,
+						     QLatin1Char('0'))));
 			table_->setItem(r, 2,
 					new QTableWidgetItem(QStringLiteral(
-						"00:%1.733").arg(21 + r * 7, 2,
-								 10,
-								 QLatin1Char('0'))));
+						"00:%1.%2")
+						.arg(21 + r * 7, 2, 10,
+						     QLatin1Char('0'))
+						.arg((33 + r * 17) % 100, 2,
+						     10,
+						     QLatin1Char('0'))));
 			table_->setItem(r, 3,
 					new QTableWidgetItem(
-						QStringLiteral("00:10.000")));
+						QStringLiteral("00:10.00")));
 			// THE TWO CELLS THAT ARE WIDGETS, built the way the panel
-			// builds them — a comment cell with a flat line edit and
-			// a chooser beside it, and an angle cell with a tick and
-			// the speed as a label. They are the reason the row's type
-			// size can drift: the four columns above are items drawn
-			// by the table and these are widgets drawn by the sheet.
+			// builds them — a comment cell that is plain text at rest
+			// (TAB W2) and opens the chip popover on one click, and
+			// an angle cell with a tick and the speed as a label
+			// (empty without override, TAB K1/E3).
 			{
 				auto *nc = new QWidget;
 				nc->setObjectName(QStringLiteral("mrNoteCell"));
 				auto *nh = new QHBoxLayout(nc);
-				nh->setContentsMargins(2, 0, 2, 0);
-				nh->setSpacing(2);
-				auto *note = new QLineEdit(
+				nh->setContentsMargins(2, 0, 0, 0);
+				nh->setSpacing(0);
+				auto *note = new QPushButton(
 					r % 2 ? QStringLiteral("Gol")
 					      : QStringLiteral("Esultanza"),
 					nc);
-				note->setObjectName(QStringLiteral("mrAngleNote"));
-				note->setFrame(false);
+				note->setObjectName(QStringLiteral("mrNoteText"));
+				note->setCursor(Qt::PointingHandCursor);
+				note->setFocusPolicy(Qt::NoFocus);
+				note->setSizePolicy(QSizePolicy::Expanding,
+						    QSizePolicy::Fixed);
 				nh->addWidget(note, 1);
-				auto *pick = new QPushButton(nc);
-				pick->setObjectName(QStringLiteral("mrNotePick"));
-				setKeyIcon(pick, Icon::More, g_tints, 10);
-				pick->setFixedWidth(16);
-				nh->addWidget(pick);
+				connect(note, &QPushButton::clicked, this,
+					[this, note]() {
+						openMockNotePopover(note);
+					});
 				table_->setCellWidget(r, 4, nc);
 			}
 			{
@@ -438,8 +462,9 @@ public:
 				ch->addWidget(tick);
 				auto *sp = new QPushButton(cell);
 				sp->setObjectName(QStringLiteral("mrAngleSpeed"));
-				sp->setText(r % 3 ? QStringLiteral("--")
-						  : QStringLiteral("50"));
+				// TAB K1 (E3), like the dock: only an override
+				// prints, otherwise the badge is empty.
+				sp->setText(r % 3 ? QString() : QStringLiteral("50"));
 				sp->setProperty("mrNoOverride", r % 3 != 0);
 				sp->setFixedWidth(22);
 				ch->addWidget(sp);
@@ -577,10 +602,10 @@ public:
 						      : Qt::Vertical);
 
 		strip_->setMode(m);
-		// OUT folds away in Tall (IN + Durata already say where the clip
-		// is), like the real panel's applyPanelMode.
+		// OUT STAYS VISIBLE IN EVERY FORM (E7): the table scrolls, like
+		// the real panel's applyPanelMode.
 		if (table_)
-			table_->setColumnHidden(2, m == PanelMode::Tall);
+			table_->setColumnHidden(2, false);
 		applyCompactChrome(m == PanelMode::Tall);
 		applyTallCollapse(m == PanelMode::Tall);
 		arrangeToolbar(m);
@@ -846,6 +871,46 @@ public:
 	QSize tileSize() const { return tile_[0] ? tile_[0]->size() : QSize(); }
 	// The event list, so a check can read the size its rows are drawn at.
 	QTableWidget *eventTable() const { return table_; }
+	// THE NOTE POPOVER'S STAND-IN (TAB W2): the dock opens a chip popover
+	// on one click of the comment word; this is the same shape — preset
+	// chips over a free-text field, named mrNotePopover — so the shared
+	// probe reads it instead of the dock's absence.
+	void openMockNotePopover(QWidget *anchor)
+	{
+		if (!anchor)
+			return;
+		if (findChild<QFrame *>(QStringLiteral("mrNotePopover")))
+			return;
+		auto *pop = new QFrame(this, Qt::Popup);
+		pop->setObjectName(QStringLiteral("mrNotePopover"));
+		pop->setAttribute(Qt::WA_DeleteOnClose);
+		auto *v = new QVBoxLayout(pop);
+		v->setContentsMargins(6, 6, 6, 6);
+		v->setSpacing(6);
+		QList<QWidget *> chips;
+		for (const QString &t :
+		     {QStringLiteral("Gol"), QStringLiteral("Fallo"),
+		      QStringLiteral("Esultanza")}) {
+			auto *chip = new QPushButton(t, pop);
+			chip->setObjectName(QStringLiteral("mrNoteChip"));
+			chip->setCursor(Qt::PointingHandCursor);
+			chip->setFocusPolicy(Qt::NoFocus);
+			connect(chip, &QPushButton::clicked, pop,
+				[pop]() { pop->close(); });
+			chips << chip;
+		}
+		v->addWidget(flowBand(pop, chips, 5));
+		auto *field = new QLineEdit(pop);
+		field->setObjectName(QStringLiteral("mrNoteField"));
+		field->setPlaceholderText(
+			QStringLiteral("scrivi un commento…"));
+		connect(field, &QLineEdit::returnPressed, pop,
+			[pop]() { pop->close(); });
+		v->addWidget(field);
+		pop->adjustSize();
+		pop->move(anchor->mapToGlobal(QPoint(0, anchor->height())));
+		pop->show();
+	}
 	QSize tileBlockSize() const { return tiles_ ? tiles_->size() : QSize(); }
 	QSize monitorSize() const
 	{
@@ -1140,9 +1205,18 @@ private:
 	{
 		auto *box = new QWidget(parent);
 		box->setObjectName(QStringLiteral("mrTableTools"));
-		auto *h = new QHBoxLayout(box);
-		h->setContentsMargins(0, 0, 0, 0);
-		h->setSpacing(8);
+		// A FLOW like the dock's (E6): Tall wraps instead of squeezing.
+		// Floor 300 (the Tall column): see FlowLayout's floorW — without
+		// it Qt evaluates the height minimum at the fully-collapsed wrap
+		// and the list pane pins ~180px tall, stealing the pictures/list
+		// divider's travel.
+		auto *h = new FlowLayout(box, 8, 4, 300);
+		{
+			QSizePolicy sp(QSizePolicy::Preferred,
+				       QSizePolicy::Minimum);
+			sp.setHeightForWidth(true);
+			box->setSizePolicy(sp);
+		}
 		auto *count = new QLabel(QStringLiteral("6 / 6"), box);
 		count->setObjectName(QStringLiteral("mrEventCount"));
 		setKeyId(count, QStringLiteral("eventCount"));
@@ -1163,21 +1237,27 @@ private:
 		sort->setChecked(true);
 		sort->setToolTip(QStringLiteral("Ordina per tempo"));
 		h->addWidget(sort);
-		auto *up = key(QStringLiteral("▲"), "mrToggle");
-		setKeyId(up, QStringLiteral("moveUp"));
-		up->setToolTip(QStringLiteral("Sposta sopra"));
+		// TAB E5: filled triangles, .key.sm 24x32, like the dock.
+		auto *up = iconKey(Icon::MoveUp, "moveUp", QStringLiteral("Sposta sopra"));
+		up->setFixedSize(32, 24);
 		h->addWidget(up);
-		auto *dn = key(QStringLiteral("▼"), "mrToggle");
-		setKeyId(dn, QStringLiteral("moveDown"));
-		dn->setToolTip(QStringLiteral("Sposta sotto"));
+		auto *dn = iconKey(Icon::MoveDown, "moveDown", QStringLiteral("Sposta sotto"));
+		dn->setFixedSize(32, 24);
 		h->addWidget(dn);
 		h->addWidget(mkSep());
-		h->addStretch(1);
+		{
+			auto *spring = new QWidget(box);
+			auto *sl = new QHBoxLayout(spring);
+			sl->setContentsMargins(0, 0, 0, 0);
+			spring->setSizePolicy(QSizePolicy::Expanding,
+					      QSizePolicy::Fixed);
+			h->addWidget(spring);
+		}
 		auto *del = key(QStringLiteral("Elimina tutto"), "mrDanger");
 		setKeyId(del, QStringLiteral("deleteAll"));
 		h->addWidget(del);
-		auto *exp = key(QStringLiteral("⤓ Esporta"), "mrToggle");
-		setKeyId(exp, QStringLiteral("export"));
+		auto *exp = iconTextKey(Icon::ExportClip, QStringLiteral("Esporta"),
+					"export");
 		exp->setToolTip(QStringLiteral("Esporta la selezione"));
 		h->addWidget(exp);
 		exp_ = exp;
@@ -3496,7 +3576,7 @@ void checkRowTypeIsOneSize(Mock *w, const QString &label)
 		   label + ": there is a row to read"))
 		return;
 	const int itemPx = QFontInfo(t->font()).pixelSize();
-	auto *comment = t->findChild<QWidget *>(QStringLiteral("mrAngleNote"));
+	auto *comment = t->findChild<QWidget *>(QStringLiteral("mrNoteText"));
 	auto *speed = t->findChild<QWidget *>(QStringLiteral("mrAngleSpeed"));
 	const int commentPx = comment ? QFontInfo(comment->font()).pixelSize() : -1;
 	const int speedPx = speed ? QFontInfo(speed->font()).pixelSize() : -1;
@@ -3541,6 +3621,198 @@ void checkAngleCellsFitColumn(Mock *w, const QString &label)
 	      QString("needs %1 of %2").arg(worstNeed).arg(kCamColW));
 	check(worstClip <= 0, label + ": no badge text is clipped",
 	      QString("over by %1").arg(worstClip));
+}
+
+// ── THE EVENT TABLE WEARS THE ARTIFACT (E1–E8, D1, D2=W2) ───────────────
+//
+// Artifact «Tabella eventi»: no zebra (.er), D1 orange selection, K1 speed
+// only on override, W2 plain-text comment + chip popover, Out visible in
+// every form, ▲▼ .key.sm with the word «Esporta» kept, number-only camera
+// headings. At the four artifact forms x four themes, like checkZoneOrder;
+// the click that opens the popover runs once.
+void checkTableConform(QApplication &app)
+{
+	using namespace multireplay::probe;
+	const ThemeChoice themeWas = g_theme;
+	const Scheme scWas = g_sc;
+	const auto tintsWas = g_tints;
+	auto *host = new QWidget();
+	host->setAutoFillBackground(true);
+	auto *hl = new QVBoxLayout(host);
+	hl->setContentsMargins(0, 0, 0, 0);
+	auto *w = new Mock();
+	hl->addWidget(w);
+	for (const ArtifactForm &f : kArtifactForms) {
+		const QString form = QString::fromLatin1(f.name);
+		bool zebra = true, sel = true, k1 = true, plain = true,
+		     out = true, tools = true, head = true;
+		QString detail;
+		for (int theme = 0; theme < 4; theme++) {
+			w->retheme((ThemeChoice)theme, app.palette());
+			w->setLayoutPreset(f.preset);
+			for (int pass = 0; pass < 2; pass++) {
+				host->resize(f.w, f.h);
+				host->show();
+				for (int i = 0; i < 3; i++) {
+					QApplication::processEvents();
+					QApplication::sendPostedEvents();
+				}
+			}
+			QTableWidget *t = w->eventTable();
+			const bool z = tableHasNoZebra(t);
+			const bool s = sheetSelectsRow(w->styleSheet(),
+						       w->sc_.rowSel);
+			// The stand-in's contract: rows with an override
+			// (every third) print it, the rest are empty — never
+			// "--" (E3).
+			bool k = t && t->rowCount() > 0;
+			QStringList speeds;
+			if (t) {
+				for (int r = 0; r < t->rowCount(); r++) {
+					const QString tx =
+						cellSpeedText(t, r, 5);
+					speeds << (tx.isEmpty()
+							  ? QStringLiteral(
+								    "()")
+							  : tx);
+					const bool wantOverride = r % 3 == 0;
+					k = k && (wantOverride
+							  ? tx ==
+								    QStringLiteral(
+									    "50")
+							  : tx.isEmpty());
+				}
+			}
+			bool p = true;
+			if (t) {
+				for (int r = 0; r < t->rowCount(); r++)
+					p = p &&
+					    noteCellIsPlainText(
+						    t->cellWidget(r, 4));
+			} else {
+				p = false;
+			}
+			const bool o =
+				t && !t->isColumnHidden(2); // kColOut
+			const bool toolsOk = noTextElided(keysById(
+				w, {"sortTime", "moveUp", "moveDown",
+				    "deleteAll", "export"}));
+			bool hOk = false;
+			QString headSeen;
+			if (t) {
+				if (QTableWidgetItem *hh =
+					    t->horizontalHeaderItem(5)) {
+					headSeen = hh->text() +
+						   QStringLiteral("|") +
+						   hh->toolTip();
+					hOk = hh->text() ==
+						      QStringLiteral("1") &&
+					      hh->toolTip().contains(
+						      QStringLiteral(
+							      "C1"));
+				}
+			}
+			if (detail.isEmpty() ||
+			    ((!z || !s || !k || !p || !o || !toolsOk ||
+			      !hOk) &&
+			     (zebra && sel && k1 && plain && out && tools &&
+			      head))) {
+				detail = QStringLiteral(
+						 "theme %1: zebra %2 sel %3 "
+						 "k1[%4] plain %5 out %6 tools "
+						 "%7 head '%8'")
+						 .arg(theme)
+						 .arg(z)
+						 .arg(s)
+						 .arg(speeds.join(','))
+						 .arg(p)
+						 .arg(o)
+						 .arg(toolsOk)
+						 .arg(headSeen);
+			}
+			zebra = zebra && z;
+			sel = sel && s;
+			k1 = k1 && k;
+			plain = plain && p;
+			out = out && o;
+			tools = tools && toolsOk;
+			head = head && hOk;
+		}
+		// TAB .er (E1)
+		check(zebra, QStringLiteral("%1: table has no zebra").arg(form),
+		      detail);
+		// TAB D1 (E2)
+		check(sel,
+		      QStringLiteral("%1: selection is D1 orange").arg(form),
+		      detail);
+		// TAB K1 (E3)
+		check(k1,
+		      QStringLiteral("%1: K1 prints only overrides").arg(form),
+		      detail);
+		// TAB W2 at rest (E4, D2)
+		check(plain,
+		      QStringLiteral("%1: comment cell is plain text").arg(form),
+		      detail);
+		// E7: Out visible, in Tall too
+		check(out,
+		      QStringLiteral("%1: Out column visible").arg(form),
+		      detail);
+		// E6: the tools bar wraps, nothing cut
+		check(tools,
+		      QStringLiteral("%1: barretta keys not cut").arg(form),
+		      detail);
+		// E8: number heading, name in the tooltip
+		check(head,
+		      QStringLiteral("%1: camera heading is a number").arg(form),
+		      detail);
+	}
+	// TAB W2 on click (E4, D2): one click opens mrNotePopover with preset
+	// chips and a field. Once — the gesture does not move with the form.
+	w->retheme(ThemeChoice::Broadcast, app.palette());
+	{
+		bool opened = false, chips = false;
+		QString detail;
+		if (QTableWidget *t = w->eventTable()) {
+			if (QWidget *nc = t->cellWidget(0, 4)) {
+				if (QPushButton *tx = nc->findChild<
+					    QPushButton *>(
+					    QStringLiteral("mrNoteText"))) {
+					tx->click();
+					for (int i = 0; i < 3; i++) {
+						QApplication::processEvents();
+						QApplication::sendPostedEvents();
+					}
+					QWidget *pop = w->findChild<QWidget *>(
+						QStringLiteral(
+							"mrNotePopover"));
+					opened = pop && pop->isVisible();
+					chips = notePopoverHasChips(pop);
+					detail = QStringLiteral(
+						"popover %1, chips+field %2")
+							.arg(opened)
+							.arg(chips);
+					if (pop)
+						pop->close();
+				} else {
+					detail = QStringLiteral(
+						"no mrNoteText in cell 0");
+				}
+			} else {
+				detail = QStringLiteral("no cell widget");
+			}
+		} else {
+			detail = QStringLiteral("no table");
+		}
+		check(opened && chips,
+		      QStringLiteral("table: one click opens mrNotePopover "
+				     "with preset chips (W2)"),
+		      detail);
+	}
+	delete host;
+	g_theme = themeWas;
+	g_sc = scWas;
+	g_tints = tintsWas;
+	refreshSheetAssets();
 }
 
 // 4. THE SETTINGS DIALOG IS THE SAME PANEL.
@@ -5183,8 +5455,8 @@ int runChecks(QPalette pal, QApplication &app, const QString &outDir)
 						QStringLiteral("mrEvents"));
 					if (check(ev != nullptr,
 						  label + ": the event table exists"))
-						check(ev->isColumnHidden(2),
-						      label + ": OUT folds away in Tall");
+						check(!ev->isColumnHidden(2),
+						      label + ": OUT stays visible in Tall");
 					// Compact is Short-only: Tall keeps full
 					// rows, dial and trim.
 					if (check(w->modesBox_ != nullptr,
@@ -5224,9 +5496,8 @@ int runChecks(QPalette pal, QApplication &app, const QString &outDir)
 				}
 			}
 		}
-		// ── TALL EXPORT — the tools bar overflows a side dock with the
-		// word on ("Esporta clip" clipped to "aporta", measured on the
-		// real panel). Icon + tooltip carry it in Tall, like Monitors'.
+		// ── TALL EXPORT — the tools bar wraps onto two lines in a side
+		// dock now, so the word stays on in every form (TAB E6).
 		{
 			QPushButton *exp = nullptr;
 			for (QPushButton *b : w->findChildren<QPushButton *>())
@@ -5235,13 +5506,8 @@ int runChecks(QPalette pal, QApplication &app, const QString &outDir)
 					exp = b;
 			if (check(exp != nullptr,
 				  label + ": the export key exists")) {
-				if (t.mode == PanelMode::Tall)
-					check(exp->text() ==
-						      QStringLiteral("⤓"),
-					      label + ": export drops its word in Tall");
-				else
-					check(!exp->text().isEmpty(),
-					      label + ": export keeps its word");
+				check(!exp->text().isEmpty(),
+				      label + ": export keeps its word");
 			}
 		}
 		check(w->height() <= t.h, label + ": fits the height it was given",
@@ -5410,10 +5676,10 @@ int runChecks(QPalette pal, QApplication &app, const QString &outDir)
 				       "border-color: " + w->sc_.warn),
 			      label + ": clearing a list is amber, not red",
 			      w->sc_.warn);
-			check(truleHas("mrEvents::item:selected",
-				       "background: " + w->sc_.tabBar),
-			      label + ": selection is navy, never orange",
-			      w->sc_.tabBar);
+		check(truleHas("mrEvents::item:selected",
+			       "background: " + w->sc_.rowSel),
+		      label + ": selection is D1 orange, never navy",
+		      w->sc_.rowSel);
 			check(truleHas("QTableWidget#mrEvents::item {",
 				       "border-bottom: 1px"),
 			      label + ": rows keep their hairline");
@@ -5650,6 +5916,10 @@ int runChecks(QPalette pal, QApplication &app, const QString &outDir)
 	checkMonitorRow(app);
 	// Short monitors: A|B over a 4-slot grid (M3).
 	checkMonitorShort(app);
+	// The event table wears the artifact: no zebra, D1 selection, K1,
+	// W2 popover, Out everywhere, wrapping tools, number headings
+	// (E1–E8, D1, D2).
+	checkTableConform(app);
 
 	// LAST, because it replaces the application palette and style sheet for
 	// the rest of the process: from here on the panel is a LIGHT one sitting

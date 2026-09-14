@@ -663,7 +663,7 @@ void MultiReplayDock::arrangeToolbar(PanelMode m)
 		// back outside the column.
 		if (exportBtn_)
 			exportBtn_->setText(QString::fromUtf8(
-				obs_module_text("Dock.ExportClips")));
+				obs_module_text("Dock.Export")));
 		// A word key again: release the icon size Short/Tall pinned.
 		monitorsBtn_->setMinimumSize(QSize(0, 0));
 		monitorsBtn_->setMaximumSize(
@@ -710,7 +710,7 @@ void MultiReplayDock::arrangeToolbar(PanelMode m)
 		// Word back on (see Tall below): Short is wide, the bar fits.
 		if (exportBtn_)
 			exportBtn_->setText(QString::fromUtf8(
-				obs_module_text("Dock.ExportClips")));
+				obs_module_text("Dock.Export")));
 		gearBtn_->setFixedSize(kToolIcoW, kToolIcoH);
 		fullScreenBtn_->setFixedSize(kToolIcoW, kToolIcoH);
 		searchIcon_->setFixedSize(kToolIcoW, kToolIcoH);
@@ -747,11 +747,11 @@ void MultiReplayDock::arrangeToolbar(PanelMode m)
 		liveBtn_->setText(QString::fromUtf8(obs_module_text("Dock.LiveMode"))
 					  .toUpper());
 		monitorsBtn_->setText(QString());
-		// THE EXPORT KEY LOSES ITS WORD TOO. The tools bar overflows a
-		// ~320 px column with it on ("Esporta clip" clipped to "aporta",
-		// measured); icon + tooltip carry it, the way Monitors' do above.
+		// THE EXPORT KEY KEEPS ITS WORD (TAB E6): the tools bar wraps onto
+		// two lines in the ~320 px column now, so nothing has to hide.
 		if (exportBtn_)
-			exportBtn_->setText(QString());
+			exportBtn_->setText(
+				QString::fromUtf8(obs_module_text("Dock.Export")));
 		// .tbar.tall .tb-ico{width:23px} — height stays 25.
 		monitorsBtn_->setFixedSize(kToolIcoWTall, kToolIcoH);
 		gearBtn_->setFixedSize(kToolIcoWTall, kToolIcoH);
@@ -2030,9 +2030,21 @@ QWidget *MultiReplayDock::buildTableTools()
 {
 	auto *box = new QWidget(this);
 	box->setObjectName(QStringLiteral("mrTableTools"));
-	auto *h = new QHBoxLayout(box);
-	h->setContentsMargins(0, 0, 0, 0);
-	h->setSpacing(8); // artifact tabella: .tbar2{gap:8px}
+	// A FLOW, not a row (E6): in Tall the bar wraps onto two lines instead
+	// of squeezing "Elimina tutto" into "mina tu". The spring below absorbs
+	// the leftover, so no key ever stretches with the panel. Floor 300 (the
+	// Tall column): see FlowLayout's floorW — without it Qt evaluates the
+	// height minimum at the fully-collapsed wrap and the list pane pins
+	// ~180px tall, stealing the pictures/list divider's travel.
+	auto *h = new FlowLayout(box, 8, 4, 300);
+	// Height-for-width, like flowBand's: without it the parent asks for
+	// sizeHint() once and a wrapped second line is drawn outside the box.
+	{
+		QSizePolicy sp(QSizePolicy::Preferred,
+			       QSizePolicy::Minimum);
+		sp.setHeightForWidth(true);
+		box->setSizePolicy(sp);
+	}
 	// Event counter (artifact tabella D1: "7 / 24" — events in this list /
 	// events everywhere). The list tabs live in the toolbar (decided,
 	// gated); the count rides the tools bar's left end, where D1 parks it.
@@ -2077,7 +2089,8 @@ QWidget *MultiReplayDock::buildTableTools()
 
 	// ▲ ▼ — the running order is the operator's. Keys rather than a drag: a
 	// drag inside a table whose cells are all editable is one slip from
-	// starting an edit instead.
+	// starting an edit instead. Filled triangles (artifact tabella E5,
+	// .key.sm 24x32), not the chevrons of a previous/next key.
 	for (const auto &mv : {std::pair<Icon, int>{Icon::MoveUp, -1},
 			       std::pair<Icon, int>{Icon::MoveDown, +1}}) {
 		const int delta = mv.second;
@@ -2087,12 +2100,22 @@ QWidget *MultiReplayDock::buildTableTools()
 				  box);
 		connect(b, &QPushButton::clicked, this,
 			[this, delta]() { moveSelectedEvent(delta); });
-		b->setFixedHeight(kKeyH);
+		b->setFixedSize(32, 24); // TAB E5: .key.sm
 		h->addWidget(b);
 	}
 	h->addWidget(mkSep());
 
-	h->addStretch(1);
+	// The slack between the reorder keys and the destructive ones. A widget
+	// with an empty layout (size hint 0x0) and an Expanding policy, so the
+	// flow feeds the leftover to it — the last key on the line never grows.
+	{
+		auto *spring = new QWidget(box);
+		auto *sl = new QHBoxLayout(spring);
+		sl->setContentsMargins(0, 0, 0, 0);
+		spring->setSizePolicy(QSizePolicy::Expanding,
+				      QSizePolicy::Fixed);
+		h->addWidget(spring);
+	}
 
 	// Elimina tutto — its own key now (the ⋯ menu it used to hide in is
 	// gone). Amber, and it confirms; the buttons are OURS so the panel's
@@ -2207,7 +2230,7 @@ KeyBlock *MultiReplayDock::buildMoreBlock()
 			QAction *a = menu->addAction(
 				exp->text().isEmpty()
 					? QString::fromUtf8(obs_module_text(
-						  "Dock.ExportClips"))
+						  "Dock.Export"))
 					: exp->text());
 			connect(a, &QAction::triggered, exp,
 				[exp]() { exp->click(); });
@@ -2263,8 +2286,10 @@ void MultiReplayDock::applyTallCollapse(bool tall)
 // it is marked.
 QPushButton *MultiReplayDock::buildExportKey()
 {
+	// TAB E6: icon + the word "Esporta" (Dock.Export), in every form — the
+	// bar wraps now, so Tall keeps the word instead of hiding it.
 	auto *exp = iconTextBtn(Icon::ExportClip,
-				obs_module_text("Dock.ExportClips"), "export", this);
+				obs_module_text("Dock.Export"), "export", this);
 	exp->setToolTip(obs_module_text("Dock.ExportReelHint"));
 	exp->setFixedHeight(kKeyH);
 	connect(exp, &QPushButton::clicked, this, [this, exp]() {
@@ -2456,7 +2481,8 @@ QWidget *MultiReplayDock::buildEvents()
 	// starting value — but it has to be a floor, not the old historic 30,
 	// or the first paint shows 30px rows until the first theme pass.
 	events_->verticalHeader()->setDefaultSectionSize(24);
-	events_->setAlternatingRowColors(true);
+	// TAB .er (E1): no zebra — only the selected row wears a fill (D1).
+	events_->setAlternatingRowColors(false);
 	events_->setShowGrid(false);
 	events_->setWordWrap(false);
 	events_->setFrameShape(QFrame::NoFrame);
