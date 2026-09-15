@@ -909,7 +909,7 @@ void MultiReplayDock::poll()
 			if (idItem->data(Qt::UserRole + 1).toBool() != isActive) {
 				idItem->setData(Qt::UserRole + 1, isActive);
 				idItem->setForeground(
-					isActive ? QBrush(QColor("#ff5a3c"))
+					isActive ? QBrush(QColor(sc().rec))
 						 : QBrush());
 			}
 		}
@@ -1118,14 +1118,22 @@ void MultiReplayDock::poll()
 				healthBtn_->hide();
 			} else {
 				const bool bad = worst >= health::Level::Blocker;
-				healthBtn_->setText(
+				const QString badge =
 					QString("%1 %2")
 						.arg(bad ? QStringLiteral("⛔")
 							 : QStringLiteral("⚠"))
-						.arg(findings.size()));
-				healthBtn_->setToolTip(QString::fromStdString(
+						.arg(findings.size());
+				if (healthBtn_->text() != badge)
+					healthBtn_->setText(badge);
+				if (healthBtn_->accessibleName() != badge)
+					healthBtn_->setAccessibleName(badge);
+				const QString tip = QString::fromStdString(
 					findingsBlock(findings,
-						      health::Level::Info)));
+						      health::Level::Info));
+				if (healthBtn_->toolTip() != tip)
+					healthBtn_->setToolTip(tip);
+				if (healthBtn_->accessibleDescription() != tip)
+					healthBtn_->setAccessibleDescription(tip);
 				const QString state = bad
 							      ? QStringLiteral("bad")
 							      : QStringLiteral("warn");
@@ -1298,12 +1306,23 @@ void MultiReplayDock::poll()
 	if (refreshStatus) {
 		std::string proj = core.getConfig().currentProjectName;
 		if (projectLbl_) {
+			const QString name = QString::fromStdString(proj);
+			const QString shown =
+				proj.empty()
+					? QString()
+					: QStringLiteral("[%1]").arg(name);
+			if (projectLbl_->text() != shown) {
+				projectLbl_->setText(shown);
+				projectLbl_->setToolTip(
+					proj.empty()
+						? QString()
+						: QString(obs_module_text("Dock.ProjectHint"))
+							  .arg(name));
+			}
 			if (proj.empty()) {
-				projectLbl_->hide();
-			} else {
-				projectLbl_->setText(
-					QString::fromStdString("[" + proj +
-							       "]"));
+				if (!projectLbl_->isHidden())
+					projectLbl_->hide();
+			} else if (projectLbl_->isHidden()) {
 				projectLbl_->show();
 			}
 		}
