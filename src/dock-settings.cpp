@@ -67,11 +67,14 @@ into their own translation units keeps each concern reviewable on its own.
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFile>
+#include <QFileInfo>
 #include <QDir>
 #include <QGroupBox>
 #include <QFrame>
 #include <QListWidget>
 #include <QStackedWidget>
+#include <QScrollArea>
+#include <QFontMetrics>
 #include <QStyledItemDelegate>
 #include <QMessageBox>
 #include <QStandardPaths>
@@ -104,6 +107,16 @@ namespace multireplay {
 // Settings dialog
 // ---------------------------------------------------------------------------
 
+// One em of a widget's own font, in logical pixels. The dialog minima in this
+// file were plain constants, and a constant chosen for 9 pt English is a third
+// too small at 150% scaling and too narrow for a translated label. Written as
+// a multiple of the em they keep their 100% value and grow with the desktop's
+// scale factor and with a theme that raises the UI font.
+static int emOf(const QWidget &w)
+{
+	return QFontMetrics(w.font()).height();
+}
+
 
 // ---------------------------------------------------------------------------
 // "Branch Output is not installed" — asked, not logged
@@ -135,7 +148,11 @@ void MultiReplayDock::promptForBranchOutput()
 
 	QDialog dlg(this);
 	dlg.setWindowTitle(obs_module_text("BO.Title"));
-	dlg.setMinimumWidth(600);
+	// 36 ems is about the 600 px this dialog has always asked for; the floor
+	// keeps that size and the font takes it up from there when the desktop
+	// scales or the theme raises the UI font.
+	dlg.ensurePolished();
+	dlg.setMinimumWidth(qMax(600, emOf(dlg) * 36));
 
 	auto *root = new QVBoxLayout(&dlg);
 	root->setSpacing(10);
@@ -289,7 +306,10 @@ void MultiReplayDock::runSetupWizard()
 
 	QDialog dlg(this);
 	dlg.setWindowTitle(obs_module_text("Setup.Title"));
-	dlg.setMinimumWidth(660);
+	// 40 ems: the 660 px this dialog has always asked for at 100%, grown
+	// with the font so the camera grid is not the thing that wraps.
+	dlg.ensurePolished();
+	dlg.setMinimumWidth(qMax(660, emOf(dlg) * 40));
 
 	auto *root = new QVBoxLayout(&dlg);
 	root->setSpacing(10);
@@ -328,6 +348,22 @@ void MultiReplayDock::runSetupWizard()
 	auto *project = new QLineEdit(&dlg);
 	project->setText(QDateTime::currentDateTime().toString("yyyyMMdd_HHmm"));
 	form->addRow(obs_module_text("Setup.Project"), project);
+
+	// The name becomes the project folder under the session folder. Empty
+	// means no project is created and the footage lands loose in the session
+	// folder: worth saying, not worth refusing — recording flat is a choice.
+	auto *projectWarn = new QLabel(&dlg);
+	projectWarn->setObjectName("mrFieldError");
+	projectWarn->setWordWrap(true);
+	projectWarn->setFocusPolicy(Qt::NoFocus);
+	projectWarn->setVisible(false);
+	form->addRow(QString(), projectWarn);
+	const auto updateProjectWarn = [&]() {
+		projectWarn->setText(obs_module_text("Dock.WarnProjectEmpty"));
+		projectWarn->setVisible(project->text().trimmed().isEmpty());
+	};
+	connect(project, &QLineEdit::textChanged, &dlg, updateProjectWarn);
+	updateProjectWarn();
 
 	// --- 3. the cameras ----------------------------------------------------
 	// FOUR, not eight. This is the dialog that gets somebody recording; a rig
@@ -485,7 +521,11 @@ void MultiReplayDock::openSettings()
 
 	QDialog dlg(this);
 	dlg.setWindowTitle(obs_module_text("Dock.Settings"));
-	dlg.setMinimumSize(760, 480);
+	// 46 x 28 ems: the 760x480 this dialog has always asked for at 100%,
+	// grown with the font so a 150% desktop does not get half a dialog.
+	dlg.ensurePolished();
+	const int em = emOf(dlg);
+	dlg.setMinimumSize(qMax(760, em * 46), qMax(480, em * 28));
 
 	// A SIDE MENU AND PAGES, not one flat column of a dozen unrelated fields.
 	// The old dialog put the session folder, the audio bitrate, the pre-roll,
@@ -499,8 +539,10 @@ void MultiReplayDock::openSettings()
 
 	auto *nav = new QListWidget(&dlg);
 	nav->setObjectName("mrSettingsNav");
-	nav->setFixedWidth(172);
-	nav->setFocusPolicy(Qt::NoFocus);
+	// StrongFocus, not NoFocus: Up/Down over the pages is the fastest way
+	// through this dialog for somebody who works from the keyboard, and
+	// currentRowChanged below already does the switching.
+	nav->setFocusPolicy(Qt::StrongFocus);
 	nav->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
 	auto *pages = new QStackedWidget(&dlg);
@@ -510,7 +552,12 @@ void MultiReplayDock::openSettings()
 
 	// One page per group: a heading, one line saying what the group is FOR
 	// (an operator who has to guess reads every field anyway), then the
-	// fields themselves.
+	// fields themselves — inside a scroll area, because the long pages do not
+	// fit a laptop screen and squeezing them only moves the wrap somewhere
+	// else. Title and blurb stay pinned above the scroll: they say what the
+	// page is for, and scrolling away from that is what makes a long form
+	// confusing.
+	std::vector<QScrollArea *> pageScrollers;
 	const auto addPage = [&](const char *titleKey,
 				 const char *blurbKey) -> QFormLayout * {
 		auto *page = new QWidget(pages);
@@ -527,16 +574,55 @@ void MultiReplayDock::openSettings()
 		blurb->setWordWrap(true);
 		v->addWidget(blurb);
 
+		// NoFocus on the scroll area itself: the fields inside keep their
+		// place in the tab order, but Tab does not stop on the empty space
+		// between them. Focusing a field still scrolls it into view.
+		auto *scroll = new QScrollArea(page);
+		scroll->setWidgetResizable(true);
+		scroll->setFrameShape(QFrame::NoFrame);
+		scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+		scroll->setFocusPolicy(Qt::NoFocus);
+		pageScrollers.push_back(scroll);
+
+		auto *content = new QWidget(scroll);
+		auto *bv = new QVBoxLayout(content);
+		bv->setContentsMargins(0, 0, 0, 0);
+		bv->setSpacing(2);
+
 		auto *form = new QFormLayout();
 		form->setContentsMargins(0, 10, 0, 0);
 		form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
 		form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-		v->addLayout(form);
-		v->addStretch(1);
+		bv->addLayout(form);
+		bv->addStretch(1);
+		scroll->setWidget(content);
+		v->addWidget(scroll, 1);
 
 		pages->addWidget(page);
 		nav->addItem(obs_module_text(titleKey));
 		return form;
+	};
+
+	// A caption between groups of fields on one page: the eye gets the
+	// grouping the page blurb alone cannot give. It is a form row of its own
+	// — an empty label with a widget spanning both columns — so it follows
+	// the form's margins instead of adding a second nested layout.
+	const auto section = [&](QFormLayout *form, const char *key) {
+		auto *cap = new QLabel(obs_module_text(key), &dlg);
+		cap->setObjectName("mrSettingsSection");
+		form->addRow(cap);
+	};
+
+	// Inline validation: one label per checked field, hidden until its check
+	// fails. NoFocus so it never becomes a tab stop.
+	const auto fieldError = [&](QFormLayout *form) {
+		auto *err = new QLabel(&dlg);
+		err->setObjectName("mrFieldError");
+		err->setWordWrap(true);
+		err->setFocusPolicy(Qt::NoFocus);
+		err->setVisible(false);
+		form->addRow(QString(), err);
+		return err;
 	};
 	connect(nav, &QListWidget::currentRowChanged, pages,
 		&QStackedWidget::setCurrentIndex);
@@ -548,6 +634,7 @@ void MultiReplayDock::openSettings()
 	// the folder they are about — reading them off the status line means waiting
 	// for the status line to be showing them.
 	QFormLayout *recPage = addPage("Dock.SetSession", "Dock.SetSessionBlurb");
+	const int recIdx = nav->count() - 1;
 
 	// Taken ONCE, here, from the same statusJson() the status line reads.
 	// std::filesystem::space() on a NAS is a network round trip and that is why
@@ -632,6 +719,8 @@ void MultiReplayDock::openSettings()
 		recPage->addRow(cards);
 	}
 
+	section(recPage, "Dock.SecStorage");
+
 	auto *folderRow = new QHBoxLayout();
 	auto *folderEdit =
 		new QLineEdit(QString::fromStdString(cfg.sessionFolder), &dlg);
@@ -647,6 +736,7 @@ void MultiReplayDock::openSettings()
 			folderEdit->setText(f);
 	});
 	recPage->addRow(obs_module_text("Dock.SessionFolder"), folderRow);
+	auto *folderError = fieldError(recPage);
 
 	auto *split = new QSpinBox(&dlg);
 	// 0 = never split: an ISO is normally one continuous file (see
@@ -658,6 +748,8 @@ void MultiReplayDock::openSettings()
 	split->setSpecialValueText(obs_module_text("Dock.SplitNever"));
 	split->setToolTip(obs_module_text("Dock.SplitMinutesHint"));
 	recPage->addRow(obs_module_text("Dock.SplitMinutes"), split);
+
+	section(recPage, "Dock.SecEncoding");
 
 	auto *vbr = new QSpinBox(&dlg);
 	vbr->setRange(1000, 200000);
@@ -717,14 +809,17 @@ void MultiReplayDock::openSettings()
 		grid->setVerticalSpacing(4);
 		for (int i = 0; i < kMaxCameras; i++) {
 			auto *c = makeSourceCombo(cfg.cameras[i].sourceName);
-			c->setMinimumWidth(120);
+			// A floor, not a fixed width: a longer label in another locale
+			// or at a larger scale factor widens the combo instead of
+			// eliding the source name.
+			c->setMinimumWidth(qMax(120, em * 7));
 			auto *nameEdit = new QLineEdit(
 				QString::fromStdString(cfg.cameras[i].displayName),
 				&dlg);
 			nameEdit->setPlaceholderText(
 				QString(obs_module_text("Dock.CameraName"))
 					.arg(i + 1));
-			nameEdit->setFixedWidth(96);
+			nameEdit->setMinimumWidth(qMax(96, em * 6));
 			camCombos.push_back(c);
 			camNameEdits.push_back(nameEdit);
 
@@ -738,11 +833,13 @@ void MultiReplayDock::openSettings()
 			// direction the eye goes.
 			grid->addLayout(cell, i % 4, i / 4);
 		}
+		section(camPage, "Dock.SecCameraSlots");
 		camPage->addRow(grid);
 	}
 
 	// ── Replay / playout ──────────────────────────────────────────────
 	QFormLayout *outPage = addPage("Dock.SetReplay", "Dock.SetReplayBlurb");
+	const int outIdx = nav->count() - 1;
 
 	// No replay-source selector: "MultiReplay - Replay A" is a plugin-provided
 	// OBS input the operator drops into whatever scene he likes, exactly like
@@ -781,6 +878,7 @@ void MultiReplayDock::openSettings()
 			outScene->setCurrentIndex(idx);
 	}
 	outPage->addRow(obs_module_text("Dock.OutputScene"), outScene);
+	auto *outSceneError = fieldError(outPage);
 
 	// ...and B's own. Two channels are two OBS inputs, so they live in two
 	// scenes: with one scene for both, playing on B switched program to the
@@ -802,6 +900,7 @@ void MultiReplayDock::openSettings()
 			outSceneB->setCurrentIndex(idx);
 	}
 	outPage->addRow(obs_module_text("Dock.OutputSceneB"), outSceneB);
+	auto *outSceneBError = fieldError(outPage);
 
 	// IS THERE A SECOND BAY? The first thing on this page, because everything
 	// below it about B is meaningless when the answer is no — and because with
@@ -810,6 +909,13 @@ void MultiReplayDock::openSettings()
 	useB->setChecked(cfg.enableChannelB);
 	useB->setToolTip(obs_module_text("Dock.EnableChannelBHint"));
 	outPage->insertRow(0, obs_module_text("Dock.EnableChannelB"), useB);
+
+	// Caption above even that switch: the page's first group is what goes on
+	// air, and it owns everything down to the fit switch. Inserted at row 0
+	// after the B switch so that switch is not pushed below its own caption.
+	auto *programCap = new QLabel(obs_module_text("Dock.SecProgram"), &dlg);
+	programCap->setObjectName("mrSettingsSection");
+	outPage->insertRow(0, programCap);
 
 	// Under A|B both bays play the same event, but Program is ONE scene, so
 	// somebody has to say which bay's scene goes on air. Left to a guess it
@@ -845,6 +951,23 @@ void MultiReplayDock::openSettings()
 	// TWO choices and one duration, because going to the replay and coming back
 	// are two moments. A stinger needs no special case: OBS transitions are
 	// listed by name, and a stinger the operator built is one of the names.
+	//
+	// The names OBS has right now, gathered once: the combos keep a configured
+	// transition that was renamed or removed since (so saving does not
+	// silently reset the setting), and validation uses this list to warn about
+	// exactly that instead of guessing.
+	QStringList obsTransitionNames;
+	{
+		struct obs_frontend_source_list list = {};
+		obs_frontend_get_transitions(&list);
+		for (size_t i = 0; i < list.sources.num; i++) {
+			const char *nm =
+				obs_source_get_name(list.sources.array[i]);
+			if (nm && *nm)
+				obsTransitionNames << QString::fromUtf8(nm);
+		}
+		obs_frontend_source_list_free(&list);
+	}
 	auto makeTransitionCombo = [&](const std::string &cur) {
 		auto *c = new QComboBox(&dlg);
 		// "(as OBS)" first: leaving the operator's own transition alone is the
@@ -873,13 +996,16 @@ void MultiReplayDock::openSettings()
 			c->setCurrentIndex(idx);
 		return c;
 	};
+	section(outPage, "Dock.SecTransitions");
 	auto *transIn = makeTransitionCombo(cfg.transitionInName);
 	transIn->setToolTip(obs_module_text("Dock.TransitionInHint"));
 	outPage->addRow(obs_module_text("Dock.TransitionIn"), transIn);
+	auto *transInError = fieldError(outPage);
 
 	auto *transOut = makeTransitionCombo(cfg.transitionOutName);
 	transOut->setToolTip(obs_module_text("Dock.TransitionOutHint"));
 	outPage->addRow(obs_module_text("Dock.TransitionOut"), transOut);
+	auto *transOutError = fieldError(outPage);
 
 	auto *transMs = new QSpinBox(&dlg);
 	transMs->setRange(0, 20000);
@@ -917,6 +1043,8 @@ void MultiReplayDock::openSettings()
 		outPage->addRow(QString(), note);
 	}
 
+	section(outPage, "Dock.SecMusic");
+
 	auto *music = makeSourceCombo(cfg.musicSourceName);
 	music->setToolTip(obs_module_text("Dock.MusicSourceHint"));
 	outPage->addRow(obs_module_text("Dock.MusicSource"), music);
@@ -942,6 +1070,7 @@ void MultiReplayDock::openSettings()
 			musicFile->setText(f);
 	});
 	outPage->addRow(obs_module_text("Dock.MusicFile"), musicRow);
+	auto *musicFileError = fieldError(outPage);
 
 	// The starting position of the panel's Mute key. On, and every replay
 	// plays silent until the operator lifts it — the key never lifts itself.
@@ -953,6 +1082,7 @@ void MultiReplayDock::openSettings()
 
 	// ── Events ────────────────────────────────────────────────────────
 	QFormLayout *evPage = addPage("Dock.SetEvents", "Dock.SetEventsBlurb");
+	section(evPage, "Dock.SecRoll");
 
 	// Pre/post roll: the operator marks after he has seen the action, so the
 	// event has to start before his finger did. Whole seconds like the reference controller, with
@@ -991,6 +1121,8 @@ void MultiReplayDock::openSettings()
 	pastOut->setToolTip(obs_module_text("Dock.ContinuePastOutHint"));
 	evPage->addRow(obs_module_text("Dock.ContinuePastOut"), pastOut);
 
+	section(evPage, "Dock.SecBehaviour");
+
 	auto *sortByTime = new QCheckBox(&dlg);
 	sortByTime->setChecked(cfg.sortEventsByTime);
 	sortByTime->setToolTip(obs_module_text("Dock.SortByTimeHint"));
@@ -1017,6 +1149,8 @@ void MultiReplayDock::openSettings()
 	spaceBar->setChecked(cfg.spacebarPlays);
 	spaceBar->setToolTip(obs_module_text("Dock.SpacebarPlaysHint"));
 	evPage->addRow(obs_module_text("Dock.SpacebarPlays"), spaceBar);
+
+	section(evPage, "Dock.SecList");
 
 	auto *idDigits = new QSpinBox(&dlg);
 	idDigits->setRange(1, 8);
@@ -1050,6 +1184,7 @@ void MultiReplayDock::openSettings()
 
 	// ── Interface ─────────────────────────────────────────────────────
 	QFormLayout *uiPage = addPage("Dock.SetInterface", "Dock.SetInterfaceBlurb");
+	section(uiPage, "Dock.SecPanel");
 
 	// The multiview strip. Each tile is an obs_display rendered by the same
 	// graphics thread as the OBS program preview, so a rig that is short of
@@ -1068,6 +1203,8 @@ void MultiReplayDock::openSettings()
 	// key keep their own hues under every option here: an operator reads tally
 	// by colour, from across a gallery, and a theme whose accent happens to be
 	// green must not be able to say that green now means something else.
+	section(uiPage, "Dock.SecTheme");
+
 	auto *theme = new QComboBox(&dlg);
 	theme->addItem(obs_module_text("Dock.ThemeFollowObs"), 0);
 	theme->addItem(obs_module_text("Dock.ThemeBroadcast"), 1);
@@ -1086,6 +1223,8 @@ void MultiReplayDock::openSettings()
 	// the row is sized from the cells it holds, so each step is a set of
 	// metrics that agree with each other rather than a number that can be set
 	// shorter than the text in it.
+	section(uiPage, "Dock.SecDensity");
+
 	auto *density = new QComboBox(&dlg);
 	density->addItem(obs_module_text("Dock.RowsComfortable"), 0);
 	density->addItem(obs_module_text("Dock.RowsCompact"), 1);
@@ -1099,6 +1238,7 @@ void MultiReplayDock::openSettings()
 
 	// ── Advanced ──────────────────────────────────────────────────────
 	QFormLayout *advPage = addPage("Dock.SetAdvanced", "Dock.SetAdvancedBlurb");
+	section(advPage, "Dock.SecEncoder");
 
 	auto *enc = new QComboBox(&dlg);
 	enc->addItem(obs_module_text("Dock.AutoEncoder"), "");
@@ -1128,6 +1268,7 @@ void MultiReplayDock::openSettings()
 
 	// VERBOSE DIAGNOSTIC LOG. Off in normal use; turned on to capture the
 	// deterministic layout/resize traces when something needs reporting.
+	section(advPage, "Dock.SecDiagnostics");
 	auto *verbose = new QCheckBox(obs_module_text("Dock.VerboseLog"), &dlg);
 	verbose->setChecked(cfg.verboseLog);
 	verbose->setToolTip(obs_module_text("Dock.VerboseLogHint"));
@@ -1138,6 +1279,8 @@ void MultiReplayDock::openSettings()
 	// button somewhere: an operator comes here on purpose, between matches,
 	// which is the only time updating a recording tool is a sensible idea.
 	QFormLayout *updPage = addPage("Dock.SetUpdates", "Dock.SetUpdatesBlurb");
+
+	section(updPage, "Dock.SecVersion");
 
 	auto *verLbl = new QLabel(QString::fromStdString(Updater::currentVersion()),
 				  &dlg);
@@ -1166,6 +1309,8 @@ void MultiReplayDock::openSettings()
 			betaWarn->setVisible(chan->currentData().toString() ==
 					     "beta");
 		});
+
+	section(updPage, "Dock.SecCheck");
 
 	auto *updStatus = new QLabel(&dlg);
 	updStatus->setWordWrap(true);
@@ -1284,13 +1429,156 @@ void MultiReplayDock::openSettings()
 				: QString::fromStdString(err));
 	});
 
+	// The side menu is as wide as its longest entry plus the stylesheet's
+	// item padding (8px 12px): a translated label must not be cut, and at
+	// 100% in English the result is about the 172 px this column used to be
+	// fixed to.
+	{
+		// ensurePolished so the measurement uses the font the stylesheet
+		// gives the list, not the inherited one it has before its first
+		// paint: this width is computed once, and a stylesheet applied later
+		// would otherwise leave the column sized for the wrong font.
+		nav->ensurePolished();
+		const QFontMetrics fm(nav->font());
+		int navWidth = 0;
+		for (int i = 0; i < nav->count(); i++)
+			navWidth = qMax(navWidth,
+					fm.horizontalAdvance(nav->item(i)->text()));
+		nav->setMinimumWidth(qMax(172, navWidth + 40));
+	}
+
+	// Validation: the labels are the whole feedback, so Save stays open when
+	// a blocker fails and the first offending field is brought to the front.
+	// Warnings never refuse — they name a consequence the operator may still
+	// choose. Only Save navigates: an edit refreshes the labels where they
+	// are, so typing in a field cannot yank focus to another page.
+	QWidget *blockedField = nullptr;
+	int blockedPage = -1;
+	const auto refreshValidation = [&]() -> bool {
+		blockedField = nullptr;
+		blockedPage = -1;
+		const auto block = [&](int page, QWidget *field, QLabel *label,
+				       const char *key) {
+			label->setText(obs_module_text(key));
+			label->setVisible(true);
+			if (!blockedField) {
+				blockedField = field;
+				blockedPage = page;
+			}
+		};
+
+		// The session folder is where every recording goes: one that does
+		// not exist is refused, not saved into the void.
+		const QString session = folderEdit->text().trimmed();
+		if (session.isEmpty() || !QDir(session).exists())
+			block(recIdx, folderEdit, folderError,
+			      "Dock.ErrSessionFolder");
+		else
+			folderError->setVisible(false);
+
+		// A scene is required only when the setting that uses it is on.
+		if (autoSwitch->isChecked() &&
+		    outScene->currentData().toString().isEmpty())
+			block(outIdx, outScene, outSceneError,
+			      "Dock.ErrOutputScene");
+		else
+			outSceneError->setVisible(false);
+
+		if (useB->isChecked() &&
+		    outSceneB->currentData().toString().isEmpty())
+			block(outIdx, outSceneB, outSceneBError,
+			      "Dock.ErrOutputSceneB");
+		else
+			outSceneBError->setVisible(false);
+
+		const QString musicPath = musicFile->text().trimmed();
+		const bool musicMissing =
+			!musicPath.isEmpty() && !QFileInfo::exists(musicPath);
+		if (musicMissing)
+			musicFileError->setText(
+				obs_module_text("Dock.ErrMusicFileMissing"));
+		musicFileError->setVisible(musicMissing);
+
+		const auto transitionWarn = [](QComboBox *combo, QLabel *label,
+					       const QStringList &known) {
+			const QString name = combo->currentData().toString();
+			label->setText(obs_module_text("Dock.WarnTransition"));
+			label->setVisible(!name.isEmpty() &&
+					  !known.contains(name));
+		};
+		transitionWarn(transIn, transInError, obsTransitionNames);
+		transitionWarn(transOut, transOutError, obsTransitionNames);
+
+		return blockedField == nullptr;
+	};
+
+	connect(folderEdit, &QLineEdit::textChanged, &dlg,
+		[&]() { refreshValidation(); });
+	connect(musicFile, &QLineEdit::textChanged, &dlg,
+		[&]() { refreshValidation(); });
+	connect(autoSwitch, &QCheckBox::toggled, &dlg,
+		[&]() { refreshValidation(); });
+	connect(useB, &QCheckBox::toggled, &dlg,
+		[&]() { refreshValidation(); });
+	connect(outScene, &QComboBox::currentIndexChanged, &dlg,
+		[&]() { refreshValidation(); });
+	connect(outSceneB, &QComboBox::currentIndexChanged, &dlg,
+		[&]() { refreshValidation(); });
+	connect(transIn, &QComboBox::currentIndexChanged, &dlg,
+		[&]() { refreshValidation(); });
+	connect(transOut, &QComboBox::currentIndexChanged, &dlg,
+		[&]() { refreshValidation(); });
+
 	nav->setCurrentRow(0);
 
 	auto *buttons = new QDialogButtonBox(
 		QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dlg);
-	connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+	// Save is the default (Enter saves); Cancel deliberately is not: a
+	// reflex Enter must not close the dialog and throw the edits away.
+	auto *saveBtn = buttons->button(QDialogButtonBox::Save);
+	auto *cancelBtn = buttons->button(QDialogButtonBox::Cancel);
+	saveBtn->setDefault(true);
+	saveBtn->setAutoDefault(true);
+	cancelBtn->setAutoDefault(false);
+
+	// Keyboard path through the dialog: the side menu hands over to the
+	// first field of the first page, and the footer's two buttons stay
+	// adjacent. Everything between them is creation order, which is the
+	// visual order; the scroll areas are NoFocus so nothing interrupts it.
+	QWidget::setTabOrder(nav, folderEdit);
+	QWidget::setTabOrder(saveBtn, cancelBtn);
+
+	// QScrollArea only scrolls to a focused child under keypad navigation
+	// (its event filter tests that mode), so a field reached with Tab can sit
+	// below the fold with the cursor already in it. Following the app's focus
+	// signal covers every field on every page at once, and costs nothing
+	// while focus is elsewhere.
+	connect(qApp, &QApplication::focusChanged, &dlg,
+		[&](QWidget *, QWidget *now) {
+			if (!now)
+				return;
+			for (auto *scroll : pageScrollers) {
+				if (scroll->isAncestorOf(now)) {
+					scroll->ensureWidgetVisible(now, 0, em);
+					break;
+				}
+			}
+		});
+
+	connect(buttons, &QDialogButtonBox::accepted, &dlg, [&]() {
+		if (!refreshValidation()) {
+			nav->setCurrentRow(blockedPage);
+			blockedField->setFocus();
+			pageScrollers[blockedPage]->ensureWidgetVisible(
+				blockedField, 0, em);
+			return;
+		}
+		dlg.accept();
+	});
 	connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
 	root->addWidget(buttons, 0);
+
+	refreshValidation();
 
 	if (dlg.exec() != QDialog::Accepted)
 		return;
