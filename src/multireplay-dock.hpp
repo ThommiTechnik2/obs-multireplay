@@ -687,11 +687,10 @@ private:
 	// project is empty on both).
 	void clearBothBays();
 	AspectBox *bBox_ = nullptr;          // B's bay, absent when B is off
-	// the reference controller's Monitors key and what it takes away: the whole monitoring block
-	// (both decks, the camera previews) and the green strip that belongs under it.
+	// the reference controller's Monitors key and what it takes away: the whole monitoring
+	// block — both decks and the camera previews.
 	QPushButton *monitorsBtn_ = nullptr;
 	QWidget *monitorsRow_ = nullptr;
-	QWidget *monitorsStrip_ = nullptr;
 	// The pane the two rows above live in. Hiding the rows is not enough: the
 	// splitter keeps that share of the height and the list below stays exactly
 	// as short as it was, with a band of nothing on top. A hidden splitter
@@ -816,10 +815,6 @@ private:
 	// The bay selector and the swap: narrower than a camera key, because they
 	// carry one or two characters rather than a camera's name.
 	static constexpr int kChanKeyWidth = 38;
-
-	// Centre every row of a combo's dropdown, in both directions. Needs code
-	// rather than a stylesheet: item text goes through the view's delegate.
-	static void centreComboItems(QComboBox *cb);
 
 	// `presets` is the operator's comment vocabulary, read ONCE by the caller
 	// and handed down. Reading it here meant a whole-Config copy under the
@@ -1430,7 +1425,6 @@ private:
 	// playhead is, and the answer to a key the operator just pressed.
 	QLabel *statusNotice_ = nullptr;
 	QLabel *statusSpeed_ = nullptr;
-	QLabel *statusTake_ = nullptr; // elapsed / remaining, while recording
 	QWidget *statusBar_ = nullptr;
 	// Whether the line is currently carrying a notice rather than the resting
 	// text. Kept so the restyle that goes with it happens on the CHANGE, not

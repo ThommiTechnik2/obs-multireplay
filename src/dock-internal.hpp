@@ -84,6 +84,7 @@ inline QPushButton *iconBtn(Icon ic, const char *id, const QString &tip,
 	auto *b = new QPushButton(parent);
 	b->setObjectName(QString::fromLatin1(role));
 	b->setToolTip(tip);
+	b->setAccessibleName(tip);
 	b->setCursor(Qt::PointingHandCursor);
 	b->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 	setKeyIcon(b, ic, tintsFor(sc()));
@@ -104,6 +105,7 @@ inline QPushButton *iconTextBtn(Icon ic, const QString &text, const char *id,
 	auto *b = new QPushButton(text, parent);
 	if (role && *role)
 		b->setObjectName(QString::fromLatin1(role));
+	b->setAccessibleName(text);
 	b->setCursor(Qt::PointingHandCursor);
 	setKeyIcon(b, ic, tintsFor(sc()), px);
 	setKeyId(b, QString::fromLatin1(id));
@@ -253,6 +255,7 @@ inline QPushButton *statusToggle(Icon ic, const QString &text, const char *id,
 	b->setObjectName(QStringLiteral("mrStatKey"));
 	b->setCheckable(true);
 	b->setToolTip(tip);
+	b->setAccessibleName(tip);
 	b->setCursor(Qt::PointingHandCursor);
 	b->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 	setKeyIcon(b, ic, tintsFor(sc()), 12);
@@ -391,6 +394,7 @@ inline QPushButton *compactBtn(const QString &text, QWidget *parent,
 			       const char *role = "")
 {
 	auto *b = new QPushButton(text, parent);
+	b->setAccessibleName(text);
 	b->setMinimumHeight(28);
 	if (role && *role)
 		b->setObjectName(QString::fromLatin1(role));
@@ -409,6 +413,7 @@ inline QPushButton *transportBtn(const QString &text, QWidget *parent,
 	auto *b = new QPushButton(text, parent);
 	b->setObjectName(QString::fromLatin1(role));
 	b->setToolTip(tip);
+	b->setAccessibleName(tip);
 	b->setCursor(Qt::PointingHandCursor);
 	b->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 	return b;
@@ -440,6 +445,7 @@ inline QPushButton *toggleBtn(const QString &text, QWidget *parent,
 	b->setObjectName(QString::fromLatin1(role));
 	b->setCheckable(true);
 	b->setToolTip(tip);
+	b->setAccessibleName(tip);
 	b->setCursor(Qt::PointingHandCursor);
 	b->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 	return b;

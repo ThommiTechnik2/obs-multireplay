@@ -113,6 +113,9 @@ SeekBar::SeekBar(QWidget *parent) : QWidget(parent)
 	setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 	setCursor(Qt::PointingHandCursor);
 	setMouseTracking(false);
+	setFocusPolicy(Qt::StrongFocus);
+	setAccessibleName(obs_module_text("Dock.SeekA11y"));
+	setAccessibleDescription(obs_module_text("Dock.SeekA11yHint"));
 
 	coalesceTimer_ = new QTimer(this);
 	coalesceTimer_->setSingleShot(true);
@@ -452,6 +455,15 @@ void SeekBar::paintEvent(QPaintEvent *)
 	// stops being readable at the exact size where it matters.
 	p.setRenderHint(QPainter::Antialiasing, false);
 
+	const auto drawFocusRing = [this, &p]() {
+		if (!hasFocus())
+			return;
+		p.setRenderHint(QPainter::Antialiasing, true);
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(QColor(sc().accent), 2));
+		p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), 3, 3);
+	};
+
 	// The whole widget IS the bar (no bead on a rail): it is the control the
 	// operator's hand lives on, so it is as wide and as tall as the panel can
 	// afford.
@@ -491,6 +503,7 @@ void SeekBar::paintEvent(QPaintEvent *)
 			p.drawText(QRect(m + 6, y, w - 12, h + kSeekRulerH),
 				   Qt::AlignCenter, emptyHint_);
 		}
+		drawFocusRing();
 		return;
 	}
 
@@ -713,6 +726,8 @@ void SeekBar::paintEvent(QPaintEvent *)
 		p.setPen(QColor(sc().text));
 		p.drawText(tr, Qt::AlignCenter, overlay_);
 	}
+
+	drawFocusRing();
 }
 
 int SeekBar::xForFraction(double frac) const
@@ -882,6 +897,9 @@ ClipBar::ClipBar(QWidget *parent) : QWidget(parent)
 	// Deliberately NOT a pointing-hand cursor and deliberately not clickable:
 	// the bar directly under it IS clickable, and a bar that looks draggable
 	// but is not is worse than one that looks inert.
+	setToolTip(obs_module_text("Dock.OnAirHint"));
+	setAccessibleName(obs_module_text("Dock.OnAirA11y"));
+	setAccessibleDescription(obs_module_text("Dock.OnAirHint"));
 
 	coalesceTimer_ = new QTimer(this);
 	coalesceTimer_->setSingleShot(true);
@@ -977,7 +995,7 @@ void ClipBar::paintEvent(QPaintEvent *)
 	// over either.
 	p.setPen(QColor(0x00, 0x20, 0x0c, 0xb0));
 	p.drawText(tr.adjusted(1, 1, 1, 1), Qt::AlignCenter, text_);
-	p.setPen(onAir_ ? QColor(0xff, 0xff, 0xff) : QColor(0xa8, 0xc8, 0xb0));
+	p.setPen(onAir_ ? QColor(sc().onSignalText) : QColor(sc().onAir));
 	p.drawText(tr, Qt::AlignCenter, text_);
 }
 
@@ -1311,8 +1329,6 @@ void MultiReplayDock::applyMonitorsVisible(bool on)
 	monitorsOn_ = on;
 	if (monitorsRow_)
 		monitorsRow_->setVisible(on);
-	if (monitorsStrip_)
-		monitorsStrip_->setVisible(on);
 	if (previewPane_)
 		previewPane_->setVisible(on);
 	applyMonitorsRoom();
@@ -1398,21 +1414,21 @@ void MultiReplayDock::applyMonitorsRoom()
 // HOW TALL THE MONITORING BLOCK MAY BE, and it must not be read off the block
 // itself: that height is DERIVED from the arrangement this number chooses, so
 // feeding it back in makes a pass decide from whatever the widget happened to be
-// mid-settle - measured in the mockup, 100 px, which picked an arrangement of
-// 78 px stamps. What the splitter is willing to give depends only on the panel
-// and a constant, so it is the same on every pass.
+// mid-settle - measured on a second renderer, 100 px, which picked an
+// arrangement of 78 px stamps. What the splitter is willing to give depends
+// only on the panel and a constant, so it is the same on every pass.
 //
 // Once the OPERATOR has moved the divider it is his answer, and that is stable
 // for the same reason: it stops being derived from anything.
 int MultiReplayDock::monitorRoomH() const
 {
-	// ONE COPY OF THIS ARITHMETIC, in dock-layout, shared with the mockup.
-	// There were two, and they disagreed about the one thing that mattered:
-	// the mockup honoured the divider the operator had dragged between the
-	// pictures and the list, and this did not. At 1090x811 on a two-camera
-	// rig the mockup drew 357 px cameras filling the row and the panel drew
-	// 237 px ones with a 240 px band beside them — and the mockup is what
-	// every layout decision here is judged on.
+	// ONE COPY OF THIS ARITHMETIC, in dock-layout. There were two, and they
+	// disagreed about the one thing that mattered: a second renderer honoured
+	// the divider the operator had dragged between the pictures and the list,
+	// and this did not. At 1090x811 on a two-camera rig the second renderer
+	// drew 357 px cameras filling the row and the panel drew 237 px ones with
+	// a 240 px band beside them — and that renderer is what every layout
+	// decision here was judged on.
 	return monitorRoomFor({height(),
 			       splitter_ ? splitter_->height() : height(),
 			       previewPane_ ? previewPane_->height() : 0,
@@ -1526,8 +1542,8 @@ void MultiReplayDock::applyPanelMode(PanelMode m, bool force)
 	// A mode change rewrites how short the panel may be, so a panel asked for
 	// a size that only the NEW arrangement can hold takes two resize events to
 	// get there: the first arrives while the old floor is still in force. The
-	// mockup's --check measures it (a top-level asked for 1400x340 lands on
-	// 404, then 340).
+	// standalone layout checks measure it (a top-level asked for 1400x340
+	// lands on 404, then 340).
 	//
 	// `layout()->invalidate()` here was the obvious fix and was MEASURED TO DO
 	// NOTHING — the same two events either way — so it is not in this file. In
@@ -1853,13 +1869,13 @@ void MultiReplayDock::applyPreviewAspect()
 		if (haveTiles)
 			monitorSplit_->setSizes({bayH, stripH});
 	} else {
-		// ONE PIECE OF ARITHMETIC, SHARED WITH THE MOCKUP (tileBlockFor,
-		// in dock-layout). This used to be a second, simpler copy here -
-		// a fixed 150 px ceiling and a flat share of the width - and the
-		// two disagreed: beside an 840 px A the cameras came out as two
-		// stamps with 270 px of empty panel under them, while the mockup,
-		// which is what every layout decision was being judged on, drew
-		// something else entirely.
+		// ONE PIECE OF ARITHMETIC, IN DOCK-LAYOUT (tileBlockFor). This used
+		// to be a second, simpler copy here - a fixed 150 px ceiling and a
+		// flat share of the width - and the two disagreed: beside an 840 px
+		// A the cameras came out as two stamps with 270 px of empty panel
+		// under them, while the standalone layout checks, the authority
+		// every layout decision was judged against, drew something else
+		// entirely.
 		int tilesW = 0, blockH = 0;
 		TileBlock tb0;
 		if (haveTiles) {
@@ -2050,9 +2066,9 @@ void MultiReplayDock::applyPreviewSplit(int want)
 // Asking a widget for its minimumSizeHint ACTIVATES its layout, and doing that
 // anywhere inside the resize cascade - in here, or in applyPanelMode - does not
 // merely read a number: the pass it forces is the one that stays on screen.
-// Measured on the mockup, which has the same layer under it: the six speed
-// presets came out 38x16 instead of 38x22, in every arrangement, and its own
-// hit-target check is what caught it.
+// Measured on a second renderer sitting on the same layout layer: the six
+// speed presets came out 38x16 instead of 38x22, in every arrangement, and
+// its own hit-target check is what caught it.
 //
 // One pass late costs nothing. The floor moves only with the WIDTH, and the
 // hysteresis in panelModeFor covers the tick it takes to catch up.
@@ -4401,20 +4417,6 @@ void MultiReplayDock::swapChannels()
 		sa.eventId, sa.angle1, sb.eventId, sb.angle1);
 }
 
-void MultiReplayDock::centreComboItems(QComboBox *cb)
-{
-	// Both dimensions, because they fail for different reasons. Horizontally,
-	// item text is drawn by the view's DELEGATE and no stylesheet reaches it —
-	// only the role does. Vertically, AlignVCenter is what stops the text
-	// sitting at the bottom of a row that the stylesheet has made taller than
-	// the glyphs.
-	if (!cb)
-		return;
-	for (int i = 0; i < cb->count(); i++)
-		cb->setItemData(i, (int)(Qt::AlignCenter),
-				Qt::TextAlignmentRole);
-}
-
 // Write the three values into a cell that is ALREADY about this event and this
 // angle, and say whether that was possible.
 //
@@ -4432,6 +4434,17 @@ void MultiReplayDock::centreComboItems(QComboBox *cb)
 //
 // refreshing_ is true throughout, so the handlers below early-out and none of
 // this reaches the store.
+
+// The speed chip's tooltip has to carry the full value, not just the name of
+// the control: the chip shows "--" or "50%" and nothing else, and the bare
+// Dock.AngleSpeedHint would say what the control IS while leaving the one
+// thing the operator hovered for unanswered.
+static QString angleSpeedTooltip(const QPushButton *sp)
+{
+	return QString("%1\n%2").arg(
+		obs_module_text("Dock.AngleSpeedHint"),
+		QString(obs_module_text("Dock.AngleSpeedNow")).arg(sp->text()));
+}
 
 bool MultiReplayDock::updateAngleCell(QWidget *cell, int eventId, int cam0,
 				      bool on, double speed)
@@ -4457,6 +4470,7 @@ bool MultiReplayDock::updateAngleCell(QWidget *cell, int eventId, int cam0,
 		sp->setProperty("mrPct", pct);
 		sp->setText(pct > 0 ? QString("%1%").arg(pct)
 				    : QStringLiteral("--"));
+		sp->setToolTip(angleSpeedTooltip(sp));
 	}
 	const bool noOverride = pct <= 0;
 	if (sp->property("mrNoOverride").toBool() != noOverride) {
@@ -4516,6 +4530,7 @@ QWidget *MultiReplayDock::buildNoteCell(int eventId, const std::string &note,
 	auto *cm = new QLineEdit(w);
 	cm->setObjectName(QStringLiteral("mrAngleNote"));
 	cm->setToolTip(obs_module_text("Dock.CamNoteHint"));
+	cm->setAccessibleName(obs_module_text("Dock.CamNoteHint"));
 	cm->setPlaceholderText(kNoNote);
 	cm->setAlignment(Qt::AlignCenter);
 	cm->setFrame(false);
@@ -4530,6 +4545,7 @@ QWidget *MultiReplayDock::buildNoteCell(int eventId, const std::string &note,
 	auto *pick = new QPushButton(w);
 	pick->setObjectName(QStringLiteral("mrNotePick"));
 	pick->setToolTip(obs_module_text("Dock.CamNoteHint"));
+	pick->setAccessibleName(obs_module_text("Dock.CamNoteHint"));
 	pick->setCursor(Qt::PointingHandCursor);
 	pick->setFocusPolicy(Qt::NoFocus);
 	pick->setFixedWidth(14);
@@ -4642,6 +4658,7 @@ QWidget *MultiReplayDock::buildAngleCell(int eventId, int cam0, bool on,
 	auto *box = new QCheckBox(w);
 	box->setChecked(on);
 	box->setToolTip(obs_module_text("Dock.AngleOnHint"));
+	box->setAccessibleName(obs_module_text("Dock.AngleOnHint"));
 	h->addWidget(box);
 
 	// THE SPEED IS A LABEL - text, like the id and the duration beside it -
@@ -4656,7 +4673,7 @@ QWidget *MultiReplayDock::buildAngleCell(int eventId, int cam0, bool on,
 	// rows is read twice.
 	auto *sp = new QPushButton(w);
 	sp->setObjectName("mrAngleSpeed");
-	sp->setToolTip(obs_module_text("Dock.AngleSpeedHint"));
+	sp->setAccessibleName(obs_module_text("Dock.AngleSpeedHint"));
 	sp->setCursor(Qt::PointingHandCursor);
 	sp->setFocusPolicy(Qt::NoFocus);
 	sp->setFixedWidth(44);
@@ -4667,6 +4684,7 @@ QWidget *MultiReplayDock::buildAngleCell(int eventId, int cam0, bool on,
 	// 100% while the clip played at a quarter speed. A number the operator can
 	// read is worth having, but not a number that can be wrong.
 	sp->setText(pct > 0 ? QString("%1%").arg(pct) : QStringLiteral("--"));
+	sp->setToolTip(angleSpeedTooltip(sp));
 	sp->setProperty("mrPct", pct);
 	// Grey for "the slider decides", the panel's ordinary text for an override.
 	// A PROPERTY, not a per-widget style sheet: setStyleSheet on a single widget
@@ -4870,19 +4888,6 @@ bool MultiReplayDock::eventFilter(QObject *watched, QEvent *event)
 					continue;
 				setAngle(t.cam0 + 1);
 				return true;
-			}
-			// The per-angle speed cell is a combo whose display is a
-			// read-only line edit (so the text can be CENTRED — see
-			// buildAngleCell). A read-only line edit eats the press
-			// instead of dropping the list down, so the press is handed
-			// back to the combo. This has to work on the FIRST click:
-			// in a gallery the second one does not happen.
-			if (auto *le = qobject_cast<QLineEdit *>(watched)) {
-				if (auto *cb = qobject_cast<QComboBox *>(
-					    le->parentWidget())) {
-					cb->showPopup();
-					return true;
-				}
 			}
 		}
 	}
