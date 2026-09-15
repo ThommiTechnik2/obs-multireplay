@@ -10,7 +10,8 @@
 // construction. Registering the faces makes the answer the same everywhere.
 //
 // PURE QT, NO OBS TYPES — the same rule as dock-style.hpp and dock-layout.
-// tools/dock-mockup compiles this file, and the mockup cannot link libobs.
+// This header must stay free of libobs: the deleted mockup compiled it
+// precisely because it could not link libobs.
 //
 // A FAMILY THAT FAILS TO REGISTER FALLS BACK; IT NEVER RETURNS EMPTY. An empty
 // family-name in a stylesheet is a rule Qt accepts and then ignores, so a

@@ -227,7 +227,7 @@ void MultiReplayDock::updateChannelStrip()
 	// had under the panel is gone, and so is the speed read-out that sat at
 	// its right end — REVIEW's own "100%" already says it. A sentence that
 	// does not fit beside the badge is elided and whole in the tooltip
-	// (setFooterNotice, dock-layout — the same code the mockup runs).
+	// (setFooterNotice, dock-layout — the same code the harness ran).
 	statusNoticeLit_ = notice;
 	if (statusNotice_)
 		setFooterNotice(statusNotice_, healthBtn_, line);

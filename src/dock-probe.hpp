@@ -3,12 +3,12 @@
 // dock-probe.hpp — THE GEOMETRY THE CHECKS MEASURE, ONE COPY OF IT
 // ---------------------------------------------------------------------------
 //
-// The mockup's --check (tools/dock-mockup) and the gate (selftest.cpp) ask the
-// same questions of the same panel: where a zone sits, whether it spans the
-// panel. A helper copied into each binary is two answers to one question, and
-// two answers drift — the same lesson monitorRoomFor (dock-layout.hpp) was
-// written for. So the measuring lives here, pure Qt with no OBS types (like
-// dock-style.hpp), and both include it.
+// The gate (selftest.cpp) asks these questions of the panel: where a zone sits,
+// whether it spans the panel. An earlier harness's --check asked the same ones,
+// and a helper copied into each binary is two answers to one question, and two
+// answers drift — the same lesson monitorRoomFor (dock-layout.hpp) was written
+// for. So the measuring lives here, pure Qt with no OBS types (like
+// dock-style.hpp).
 
 #include <QAbstractButton>
 #include <QColor>
@@ -33,7 +33,8 @@
 namespace multireplay::probe {
 
 // The toolbar's box — the one widget that holds all its rows (1 in Wide and
-// Short, 3 in Tall). Named the same in the dock (dock-build.cpp) and the mockup.
+// Short, 3 in Tall). Named in the dock (dock-build.cpp) and looked up by the
+// gate.
 inline QString toolbarBoxName()
 {
 	return QStringLiteral("mrToolbarBox");
@@ -135,8 +136,8 @@ inline int gapStripToSeek(const QWidget *strip, const QWidget *seek,
 }
 
 // ── PIXELS ────────────────────────────────────────────────────────────────
-// Read back from a grab of the panel. One copy: the mockup's colour checks and
-// the gate's header check use the same two.
+// Read back from a grab of the panel. One copy, shared by the gate's colour and
+// header checks.
 
 // The most common colour in a region: the fill, whatever it happens to be.
 inline QColor dominant(const QImage &img, const QRect &r)
@@ -288,9 +289,9 @@ inline bool isClockHms(const QString &s)
 	return true;
 }
 
-// THE WHOLE HEADER ANSWER, one copy for the mockup and the gate: frame, the
-// MARCA group centred, REVIEW's title centred, IN OUTPUT at the far right, the
-// clock without a date, and REC the compact key. `recKey`/`toOutput` are found
+// THE WHOLE HEADER ANSWER: frame, the MARCA group centred, REVIEW's title
+// centred, IN OUTPUT at the far right, the clock without a date, and REC the
+// compact key. `recKey`/`toOutput` are found
 // by the caller (by mrKey) and may be null, which fails. `keyH` is the height
 // the compact key must be (kHeaderKeyH, dock-layout.hpp). `detail` says where
 // everything was.
@@ -347,14 +348,13 @@ inline bool headersConform(const QWidget *panel, const QImage &shot,
 // ── THE MARCA BOXES (K3, K4) ───────────────────────────────────────────
 // TAS .fbox{border:1px solid #3a4a63;border-radius:7px} — always, in every
 // form — and .fbox{justify-content:center;align-items:center}: the keys ride
-// centred in their box. One copy for the mockup and the gate, like the
-// header helpers above.
+// centred in their box. One copy, like the header helpers above.
 //
-// `panel` is the dock (or the mockup's Mock): the box is found through the
-// key it holds (`keyId`, the mrKey of dock-icons.hpp — the literal here so
-// this header stays dependency-free), walking up to the ancestor that
-// directly holds a mrBlockFrame. No KeyBlock type named: the structure is
-// the contract, not the class.
+// `panel` is the dock: the box is found through the key it holds (`keyId`,
+// the mrKey of dock-icons.hpp — the literal here so this header stays
+// dependency-free), walking up to the ancestor that directly holds a
+// mrBlockFrame. No KeyBlock type named: the structure is the contract, not
+// the class.
 // The bordered frame holding `key`: the ancestor that directly holds a
 // mrBlockFrame. No KeyBlock type named: the structure is the contract.
 inline QWidget *frameOfKey(const QWidget *key, const QWidget *panel)
@@ -440,10 +440,10 @@ inline double contrastRatio(const QColor &a, const QColor &b)
 	return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
 }
 
-// THE WHOLE BOX ANSWER, one copy for the mockup and the gate: the quick-clip
-// box is framed (its top edge, right of the legend that interrupts the
-// border at the left, separates from the ground inside) and its keys ride
-// centred in it, both axes. `detail` says the numbers.
+// THE WHOLE BOX ANSWER, one copy shared by the gate: the quick-clip box is
+// framed (its top edge, right of the legend that interrupts the border at the
+// left, separates from the ground inside) and its keys ride centred in it, both
+// axes. `detail` says the numbers.
 inline bool marcaBoxesConform(const QWidget *panel, const QImage &shot,
 			      QString *detail)
 {
@@ -578,7 +578,7 @@ inline QList<QWidget *> keysById(const QWidget *panel,
 	return out;
 }
 
-// THE WHOLE PLAYBACK ANSWER, one copy for the mockup and the gate.
+// THE WHOLE PLAYBACK ANSWER, one copy shared by the gate.
 inline bool reviewConform(const QWidget *panel, const QImage &shot,
 			  const QWidget *playKey, const QWidget *nowKey,
 			  const QList<QWidget *> &modeKeys, QString *detail)
@@ -949,7 +949,7 @@ inline bool monitorRowConform(const QWidget *panel, const QList<QWidget *> &pics
 // ── EVENT TABLE (E1–E8, D1, D2) ───────────────────────────────────────────
 // TAB «la tabella eventi»: no zebra (.er — only the selected row wears a
 // fill), selection in D1 orange, K1 speed only on override, W2 plain-text
-// comment with a chip popover. One copy for the mockup and the gate.
+// comment with a chip popover. One copy shared by the gate.
 
 // TAB .er (E1): rows without alternation — only the selected one has a fill.
 inline bool tableHasNoZebra(const QTableWidget *t)
@@ -999,8 +999,7 @@ inline bool noteCellIsPlainText(const QWidget *cell)
 }
 
 // TAB W2, D2: the popover one click opens — preset chips over a free-text
-// field, recognised by name so the gate finds the dock's and the mockup
-// check finds its stand-in's.
+// field, recognised by name so the gate finds the dock's.
 inline bool notePopoverHasChips(const QWidget *popover)
 {
 	if (!popover)

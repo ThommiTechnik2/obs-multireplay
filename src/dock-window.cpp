@@ -374,7 +374,7 @@ void MultiReplayDock::refreshFullScreenKey()
 		setGalleryScale(gallery);
 		// refreshAllBlocks(), NOT applyPanelMode(force=true): the
 		// arrangement itself (Wide/Short/Tall) has not changed, only the
-		// metrics inside it, and ControlStrip::setStacked's own first
+		// metrics inside it, and the command strip's own first
 		// line — "if (forcedStack_ == on) return" — means asking for the
 		// SAME arrangement again is a no-op that never reaches
 		// KeyBlock::apply() at all. Measured: without this, entering

@@ -25,8 +25,8 @@ extern "C" {
 #include "multireplay-dock.hpp"
 #include "dock-internal.hpp" // kSeekTrackH/kSeekRulerH, for the zoom badge test
 #include "dock-icons.hpp"
-#include "dock-fonts.hpp" // panel_fonts_are_embedded — the real dock, not the mockup
-#include "dock-probe.hpp" // the geometry the checks measure, shared with the mockup
+#include "dock-fonts.hpp" // panel_fonts_are_embedded — measured on the real dock
+#include "dock-probe.hpp" // the geometry the checks measure
 #include "dock-style.hpp" // schemeFor: the D1 selection the sheet must wear
 #include "packet-tap.hpp"
 // pathToUtf8: a path handed to FFmpeg is UTF-8, never path::string() (which is
@@ -1487,10 +1487,15 @@ DockChecks runDockChecks(int firstCam, int secondCam,
 	{
 		MultiReplayDock::LayoutProbe lp;
 		runOnUi([&]() { lp = dock->layoutProbe(); });
+		// The BAND order, not the order of widgets INSIDE a band. The
+		// toolbar wraps now (ResponsiveFlow), so search and the list tabs
+		// may sit on different rows in either order — what the zone
+		// contract says is that both are above the pictures. Everything
+		// below the pictures is still strictly ordered.
 		c.layoutOrderTopToBottom =
 			lp.previewBottomY > 0 && lp.searchY >= 0 &&
 			lp.searchY < lp.previewTopY &&
-			lp.listTabsY >= lp.searchY && lp.listTabsY < lp.previewTopY &&
+			lp.listTabsY >= 0 && lp.listTabsY < lp.previewTopY &&
 			lp.tableY > lp.previewBottomY && lp.clipBarY > lp.tableY &&
 			lp.seekY > lp.clipBarY;
 		c.seekGraduations = lp.seekGraduations;
@@ -2784,8 +2789,7 @@ DockChecks runDockChecks(int firstCam, int secondCam,
 			runOnUi([&]() {
 				// By objectName rather than by class: AspectBox is a
 				// plain QWidget subclass with no Q_OBJECT, and giving
-				// it one would put a moc'd type in a header the
-				// mockup also compiles.
+				// it one would put a moc'd type in a plain-Qt header.
 				for (QWidget *box :
 				     dock->findChildren<QWidget *>()) {
 					if (box->objectName() !=
@@ -4855,14 +4859,12 @@ void runReopenPass(const std::string &outPath)
 	// pass has never changed the theme, so what it reads is the start-up
 	// sheet.
 	bool panelMarksAreDrawn = false;
-	// THE FONTS ARE REGISTERED IN THE REAL PLUGIN, NOT JUST THE MOCKUP. The
-	// mockup already asserts this (tools/dock-mockup), but the mockup and the
-	// plugin are two different build targets with two different resource
-	// files — the ONE way this can fail is `src/multireplay-fonts.qrc`
-	// dropped from the plugin's CMakeLists.txt (not the mockup's), which
-	// would leave the mockup green and the real dock running in whatever
-	// font the machine happens to have. Registration itself cannot be the
-	// fault: every accessor in dock-fonts.cpp registers before it answers,
+	// THE FONTS ARE REGISTERED IN THE REAL PLUGIN. The deleted mockup used to
+	// assert this, but the resource file is a property of the plugin's build —
+	// the ONE way this can fail is `src/multireplay-fonts.qrc` dropped from
+	// the plugin's CMakeLists.txt, which would leave the real dock running in
+	// whatever font the machine happens to have. Registration itself cannot be
+	// the fault: every accessor in dock-fonts.cpp registers before it answers,
 	// and the dock's own stylesheet construction — which resolves
 	// @ffLabel@ by calling labelFamily() — already forces it well before
 	// this reopen pass ever runs. Nothing short of measuring the real
@@ -5661,10 +5663,15 @@ void runReopenPass(const std::string &outPath)
 				QStringLiteral("mrGear"));
 			toolbarGearW = gear ? gear->width() : -1;
 			toolbarGearH = gear ? gear->height() : -1;
+			// DECLARED size, not laid-out size. A wrapping flow hands
+			// each key a cell, so width()/height() are the flow's to
+			// give — what the drawing fixes is the key's own size
+			// constraint, which setFixedSize states and exists in every
+			// arrangement. Same reason as the bank key above.
 			toolbarToolIconsAre26x25 =
 				gear &&
-				gear->width() == multireplay::kToolIcoW &&
-				gear->height() == multireplay::kToolIcoH;
+				gear->minimumWidth() == multireplay::kToolIcoW &&
+				gear->minimumHeight() == multireplay::kToolIcoH;
 
 		// ── CLUSTER ORDER — spec-unico §1, the contradiction §9
 		// recorded: the spec orders search · Monitors · layout ·
@@ -5681,9 +5688,20 @@ void runReopenPass(const std::string &outPath)
 				QStringLiteral("monitors"),
 				QStringLiteral("layout"),
 				QStringLiteral("settings")};
+			// READING ORDER (row, then column), not a bare x-sort:
+			// a wrapping flow may put the tools on more than one row,
+			// and an x-sort across rows interleaves them. The declared
+			// order is "left to right, top to bottom".
 			struct Hit {
 				QString id;
 				int x;
+				int y;
+			};
+			const auto readingBefore = [](const Hit &a,
+						      const Hit &b) {
+				if (a.y != b.y)
+					return a.y < b.y;
+				return a.x < b.x;
 			};
 			QList<Hit> hits;
 			for (QWidget *v :
@@ -5694,15 +5712,11 @@ void runReopenPass(const std::string &outPath)
 				if (!want.contains(id) ||
 				    !v->isVisible())
 					continue;
-				hits.append(
-					{id, v->mapTo(dock, QPoint(0,
-								  0))
-						      .x()});
+				const QPoint at =
+					v->mapTo(dock, QPoint(0, 0));
+				hits.append({id, at.x(), at.y()});
 			}
-			std::sort(hits.begin(), hits.end(),
-				  [](const Hit &a, const Hit &b) {
-					  return a.x < b.x;
-				  });
+			std::sort(hits.begin(), hits.end(), readingBefore);
 			QStringList names;
 			for (const Hit &h : hits)
 				names.append(h.id);
@@ -5711,9 +5725,11 @@ void runReopenPass(const std::string &outPath)
 			// The field where the key stood: left of Monitors.
 			if (auto *sf = dock->findChild<QWidget *>(
 				    QStringLiteral("mrSearch"))) {
-				const int sfx = sf->mapTo(dock, QPoint(0, 0))
-							.x();
-				int monx = INT_MAX;
+				const QPoint sfAt =
+					sf->mapTo(dock, QPoint(0, 0));
+				Hit mon;
+				mon.x = INT_MAX;
+				mon.y = INT_MAX;
 				for (QWidget *v :
 				     dock->findChildren<QWidget *>()) {
 					if (v->property(kKeyProperty)
@@ -5721,15 +5737,23 @@ void runReopenPass(const std::string &outPath)
 					    QStringLiteral("monitors") ||
 					    !v->isVisible())
 						continue;
-					monx = v->mapTo(dock, QPoint(0, 0))
-						       .x();
+					const QPoint at = v->mapTo(
+						dock, QPoint(0, 0));
+					mon.x = at.x();
+					mon.y = at.y();
 					break;
 				}
+				const Hit field{sf->objectName(), sfAt.x(),
+						sfAt.y()};
+				// The field stands where the search key stood —
+				// before Monitors in reading order.
 				toolbarToolClusterOrder =
 					toolbarToolClusterOrder &&
-					sf->isVisibleTo(dock) && sfx < monx;
+					sf->isVisibleTo(dock) &&
+					readingBefore(field, mon);
 				toolbarClusterOrder +=
-					QStringLiteral(" field@%1").arg(sfx);
+					QStringLiteral(" field@%1").arg(
+						sfAt.x());
 			}
 		}
 
@@ -6081,9 +6105,19 @@ void runReopenPass(const std::string &outPath)
 					QStringLiteral("moveDown"),
 					QStringLiteral("deleteAll"),
 					QStringLiteral("export")};
+				// Reading order (row, then column): the tools bar
+				// wraps onto two lines in the narrow column, and an
+				// x-sort across lines interleaves them.
 				struct Hit {
 					QString id;
 					int x;
+					int y;
+				};
+				const auto readingBefore = [](const Hit &a,
+							      const Hit &b) {
+					if (a.y != b.y)
+						return a.y < b.y;
+					return a.x < b.x;
 				};
 				QList<Hit> hits;
 				int seps = 0;
@@ -6102,16 +6136,14 @@ void runReopenPass(const std::string &outPath)
 						if (!want.contains(id) ||
 						    !v->isVisible())
 							continue;
+						const QPoint at = v->mapTo(
+							dock, QPoint(0, 0));
 						hits.append(
-							{id, v->mapTo(dock, QPoint(0,
-										  0))
-								      .x()});
+							{id, at.x(), at.y()});
 					}
 				}
 				std::sort(hits.begin(), hits.end(),
-					  [](const Hit &a, const Hit &b) {
-						  return a.x < b.x;
-					  });
+					  readingBefore);
 				QStringList names;
 				for (const Hit &h : hits)
 					names.append(h.id);
@@ -6316,10 +6348,12 @@ void runReopenPass(const std::string &outPath)
 				QStringLiteral("mrGear"));
 			toolbarTallIcoW = g ? g->width() : -1;
 			toolbarTallIcoH = g ? g->height() : -1;
+			// Declared size again (see the Wide read): a flow decides
+			// the cell, the mode decides the key.
 			toolbarTallIconsAre23Wide =
 				g &&
-				g->width() == multireplay::kToolIcoWTall &&
-				g->height() == multireplay::kToolIcoH;
+				g->minimumWidth() == multireplay::kToolIcoWTall &&
+				g->minimumHeight() == multireplay::kToolIcoH;
 		// ── TALL KEEPS A WHOLE-WORD LIVE (operator request,
 		// 2026-09-08 — the drawing shows it full on Tall's first
 		// row). Monitors keeps its word here too (D7).
@@ -6613,8 +6647,9 @@ void runReopenPass(const std::string &outPath)
 	// inside OBS, at the geometry each artifact draws: fullscreen 1920x1080
 	// (worn as the Wide preset until a Fullscreen form exists), Normale
 	// 1180x770, Short 900x340, Tall 320x900, in each of the four themes
-	// (Config.uiTheme 0..3). The mockup writes the same set under the same names
-	// (--artifact-set), so the two can be laid side by side file for file.
+	// (Config.uiTheme 0..3). The deleted mockup wrote the same set under the
+	// same names (--artifact-set), so the two could be laid side by side file
+	// for file.
 	//
 	// WITH DATA, because an empty table and a dark band are the two surfaces the
 	// artifacts spend most of their drawing on: six events on the list, three
@@ -6648,7 +6683,7 @@ void runReopenPass(const std::string &outPath)
 		// TAS .sub .hd (K1, K2, R1): the headers are a rule, MARCA's group
 		// and REVIEW's title centred, IN OUTPUT at the far right, the clock
 		// without a date, REC compact — on the Normale and Fullscreen shots
-		// (dock-probe.hpp headersConform, the mockup's same helper).
+		// (dock-probe.hpp headersConform).
 		bool headersMeasured = false;
 		bool headersOk = false;
 		QString headersDetail;
@@ -6665,8 +6700,8 @@ void runReopenPass(const std::string &outPath)
 		QString speedDetail;
 		// TAS .band (R7): the text centred on the whole band, ≫ bare
 		// and solid while on air — same shots
-		// (dock-probe.hpp bandConform; the dim rest state is the
-		// mockup's, same draw code).
+		// (dock-probe.hpp bandConform; the dim rest state is drawn by the
+		// same code).
 		bool bandMeasured = false;
 		bool bandOk = false;
 		QString bandDetail;
@@ -6676,7 +6711,7 @@ void runReopenPass(const std::string &outPath)
 		bool monOk = false;
 		QString monDetail;
 		// TAS MON colonna stretta (M3): A|B sopra, slot sotto — short
-		// shots only (the 4-slot grid itself is the mockup's, with 8).
+		// shots only (the 4-slot grid itself came from the harness, with 8).
 		bool shortBaysMeasured = false;
 		bool shortBaysOk = false;
 		QString shortBaysDetail;
@@ -6833,7 +6868,7 @@ void runReopenPass(const std::string &outPath)
 			host->setFloating(true);
 		});
 		// The four forms, by preset and by the artifact's own geometry:
-		// kArtifactForms (dock-layout.hpp), shared with the mockup.
+		// kArtifactForms (dock-layout.hpp).
 		if (host && presetAct[0] && presetAct[1] && presetAct[2] &&
 		    presetAct[3]) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(700));
@@ -7308,7 +7343,7 @@ void runReopenPass(const std::string &outPath)
 		// status row under MARCA|REVIEW and the notice in MARCA's footer.
 		// "Gone" means gone from the tree AND nothing but layout spacing
 		// between the strip and the bar (the old row alone was 26 px; the
-		// mockup measures 3 in every form).
+		// harness measured 3 in every form).
 		const int shotsNoRow = (int)std::count_if(
 			artifactShots.begin(), artifactShots.end(),
 			[](const ArtifactShot &s) {
@@ -7369,7 +7404,7 @@ void runReopenPass(const std::string &outPath)
 			shotsSpeedOk, shotsSpeedMeasured);
 		// R7: same 8 shots, every one with the band text centred and >>
 		// a bare glyph (solid white: the shots run on air — the dim
-		// rest ink is the mockup's, same draw code).
+		// rest ink comes from the same draw code).
 		const int shotsBandMeasured = (int)std::count_if(
 			artifactShots.begin(), artifactShots.end(),
 			[](const ArtifactShot &s) { return s.bandMeasured; });

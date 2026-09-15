@@ -102,3 +102,9 @@ mr_add_test(obs-multireplay-angle-channels-tests angle_channels "${MR_TESTS}/ang
 # showNotice's callers use to put a localized headline in front of an
 # English detail instead of showing the raw English on its own.
 mr_add_test(obs-multireplay-error-locale-tests error_locale "${MR_TESTS}/error_locale_test.cpp")
+
+# The responsive layout engine. Pure decision logic (wrap, priority collapse,
+# split), so the panel's "which keys where, and what moves to … More" is argued
+# about here instead of by resizing an OBS dock. Replaces the deleted mockup as
+# the fast feedback loop for layout decisions.
+mr_add_test(obs-multireplay-responsive-tests responsive_layout "${MR_TESTS}/responsive_layout_test.cpp")

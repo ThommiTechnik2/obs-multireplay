@@ -223,6 +223,13 @@ $testCollection = 'MRSelfTest'
 $testCollectionFile = Join-Path $scenesDir "$testCollection.json"
 $cfgBackup = Join-Path $env:TEMP 'obs-multireplay-config.backup.json'
 $iniBackup = Join-Path $env:TEMP 'obs-multireplay-global.backup.ini'
+# DEFINED HERE, before anything can fail — the same lesson as
+# Restore-OperatorEnvironment above. This path used to be assigned further down,
+# so a refusal EARLY (an unknown -Sources name, say) reached the cleanup with
+# $testSessionFolder still $null and Test-Path threw "argument is null" instead
+# of the message the operator needed. A cleanup variable that is not set yet is
+# not a cleanup.
+$testSessionFolder = Join-Path $env:TEMP 'obs-multireplay-gate-session'
 
 # global.ini is backed up so the operator's current-collection setting can be
 # handed back, but it is NOT used to FIND the sources. It is written on exit and
@@ -445,7 +452,8 @@ Step "Scene collection '$testCollection' generated$(if ($copied) { " with $($cop
 # which is what "no folder to record into" looks like from the outside. The seed
 # names the same sources the collection above carries, in the same slots, and
 # points the recordings at a directory of this run's own that goes away with it.
-$testSessionFolder = Join-Path $env:TEMP 'obs-multireplay-gate-session'
+# ($testSessionFolder is assigned up with the other test paths, before anything
+# can refuse, so the cleanup never sees it null.)
 if (Test-Path $pluginCfg) { Move-Item $pluginCfg $cfgBackup -Force }
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $pluginCfg) | Out-Null
 New-Item -ItemType Directory -Force -Path $testSessionFolder | Out-Null

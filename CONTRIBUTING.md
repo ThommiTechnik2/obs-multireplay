@@ -10,10 +10,11 @@ start.
 
 - **Build and run the test suite.** `ctest --test-dir build_x64 -C
   RelWithDebInfo` for the unit tests; they need no OBS, no Qt and no FFmpeg
-  and take well under a minute. If your change touches `src/dock-layout.cpp`
-  or `src/dock-style.hpp`, also build and run `tools/dock-mockup` (see
-  below) — it's the same code the plugin uses, without the four-minute OBS
-  launch cycle.
+  and take well under a minute. If your change touches a layout decision
+  (`src/responsive-layout.hpp`) or the style sheet (`src/dock-style.hpp`),
+  start from the unit tests (`responsive_layout`) — they are where a wrapping
+  or collapse decision is argued — then verify the painting on the real dock
+  through the gate.
 - **Small, reviewable commits.** One concern per commit, a message that says
   *why*, not just *what* (the diff already says what).
 - **Don't reformat what you didn't touch.** There is no `.clang-format` in
@@ -25,8 +26,8 @@ start.
 ## Invariants — things that will not build, or will build and be wrong
 
 These come from the code's own comments, several of them written right after
-a real regression. They're enforced by the gate script and the mockup's
-`--check` mode where that's possible; where it isn't, this is the only place
+a real regression. They're enforced by the gate script, and by the unit tests
+where the decision is pure; where neither can reach, this is the only place
 they're written down.
 
 - **Never re-parent an `OBSQTDisplay`.** Qt destroys the native window
@@ -42,13 +43,13 @@ they're written down.
   Destructive actions with an explicit confirmation (Delete All) and
   anything reached only from Settings/wizard dialogs are the accepted
   exceptions.
-- **A GUI layout decision is judged in `tools/dock-mockup`, not by eyeballing
-  OBS.** It shares `dock-layout.cpp` and `dock-style.hpp` with the real dock
-  — same arithmetic, same stylesheet — and resizes through the sizes that
-  matter in about a second instead of a four-minute OBS relaunch per look.
-  Run `dock-mockup.exe --check` (add `--host=obs` to test against OBS's own
-  theme, `--font-scale=125` for a larger OBS font) before changing anything
-  under `dock-layout.*` or `dock-style.hpp`.
+- **A wrapping or collapse decision is a unit test, not an eyeball.** Which
+  keys wrap where, and what moves to "… More" when space shrinks, lives in
+  `src/responsive-layout.hpp` and is pinned in
+  `tests/standalone/responsive_layout_test.cpp` — `ctest -R responsive_layout`.
+  What it *looks like* is judged on the real dock by the gate. The old
+  standalone mockup is gone: it meant writing every layout twice, and its
+  rendering always diverged from the panel.
 - **`ControlStrip` reports two heights, not one** (`ControlStripItem`: a
   floor for the flat/folded shape, a preference for the wide one). A widget
   normally can't say both, and collapsing them back into one is exactly the
@@ -124,15 +125,21 @@ reason `find-orphan-constants.sh` isn't: it can't tell a stale copy from
 two places that are still legitimately true for the same reason, so read
 every hit before touching either copy.
 
-## Running the mockup
+## Layout decisions
+
+There is no mockup any more (removed 2026-09-14 — it meant developing every
+layout twice, and its rendering always diverged from the real panel). The
+layout *decisions* live in `src/responsive-layout.hpp`, which is pure C++ and
+unit-tested:
 
 ```sh
-cmake -S tools/dock-mockup -B build_mockup -DCMAKE_PREFIX_PATH=<path-to-qt6>
-cmake --build build_mockup --config RelWithDebInfo
-build_mockup/RelWithDebInfo/dock-mockup --check      # the gate: exit 0 = pass
-build_mockup/RelWithDebInfo/dock-mockup --show        # a live window to drag
-build_mockup/RelWithDebInfo/dock-mockup <folder>      # writes PNGs at six sizes
+cmake -S tests -B build_tests && cmake --build build_tests --config RelWithDebInfo
+ctest --test-dir build_tests -C RelWithDebInfo -R responsive_layout --output-on-failure
 ```
+
+Anything about *which keys wrap where, and what collapses to "… More"* is
+argued about there. Anything about how it actually paints is verified on the
+real dock by the gate (`scripts/run-selftest.ps1`), never by a second UI.
 
 ## Licence
 

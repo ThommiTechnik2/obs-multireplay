@@ -1,10 +1,10 @@
 // dock-style.hpp — the panel's colours and its style sheet, in one place.
 //
-// It lives in a header of its own so that the DOCK and the LAYOUT MOCKUP are
-// styled by the same bytes. A mockup with its own copy of the sheet measures a
-// panel that does not exist: every height rule here (see the 28 px arithmetic
-// below) is part of the layout, not decoration, and a second copy would drift
-// from this one the first time a padding changed.
+// It lives in a header of its own so the dock is styled from one copy of the
+// sheet. An earlier harness with its own copy measured a panel that did not
+// exist: every height rule here (see the 28 px arithmetic below) is part of the
+// layout, not decoration, and a second copy would drift from this one the first
+// time a padding changed.
 //
 // ---------------------------------------------------------------------------
 // TWO KINDS OF COLOUR, AND ONLY ONE OF THEM IS THE OPERATOR'S TO CHOOSE
@@ -203,11 +203,11 @@ inline QColor signalOn(const QColor &hue, const QColor &bg, bool dark,
 // they live in two places, and a third-party theme is arbitrary.
 //
 // THERE IS NO `dark` PARAMETER, deliberately. There was, fed from
-// obs_frontend_is_theme_dark(), and the mockup passed the wrong one on its very
-// first run: the whole signal scale inverted and "Riproduci eventi" came out
-// BLACK on a dark panel. Whether a background is dark is not something a caller
-// should be trusted to assert when it is sitting right there in the colour. It
-// is measured.
+// obs_frontend_is_theme_dark(), and an earlier harness passed the wrong one on
+// its very first run: the whole signal scale inverted and "Riproduci eventi"
+// came out BLACK on a dark panel. Whether a background is dark is not something
+// a caller should be trusted to assert when it is sitting right there in the
+// colour. It is measured.
 inline Scheme schemeFor(ThemeChoice choice, const QPalette &pal)
 {
 	using namespace detail;
@@ -500,7 +500,7 @@ R"QSS(
 	padding: 2px 12px;
 	margin-right: 2px;
 	/* min-width esplicita: Yami ne mette 50px su ogni tab e nel reale
-	   REVIEW/MARCA uscivano larghe il doppio che nel mockup. */
+	   REVIEW/MARCA uscivano larghe il doppio che disegnate a mano. */
 	min-width: 16px;
 	font-family: "@ffLabel@";
 	font-weight: 700;
@@ -673,7 +673,7 @@ QLabel#mrClock[rec="true"] { color: @rec@; font-weight: 700; }
 	padding: 3px 9px; font-size: 11px; min-height: 18px;
 	/* margin azzerato: Yami ne mette di verticali su ogni push
 	   (margin-top/bottom) e atterrano FUORI dal tasto, nei layout —
-	   righe più alte nel reale che nel mockup, senza regola nostra. */
+	   righe più alte nel reale che disegnate a mano, senza regola nostra. */
 	margin: 0px;
 }
 /* Shield round 2: the same vertical margins Yami puts on pushes sit on
@@ -1641,7 +1641,7 @@ R"QSS(
 }
 /* margin azzerato sui bottoni in tabella: Yami mette margin:-1px su
    QTableView QPushButton/QToolButton e sposta i tasti-cella di 1px
-   rispetto al mockup. */
+   rispetto alle coordinate fissate a mano. */
 #MultiReplayDock QTableWidget QPushButton,
 #MultiReplayDock QTableWidget QToolButton {
 	margin: 0px;

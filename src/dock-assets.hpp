@@ -29,8 +29,8 @@
 //     and still a working panel.
 //
 // Pure Qt, no OBS and no FFmpeg, like dock-style and dock-layout: the dock
-// hands it obs_module_config_path(), the mockup hands it a temp directory, and
-// both are drawing the same marks.
+// hands it obs_module_config_path(), an earlier standalone harness handed it a
+// temp directory, and both drew the same marks.
 #pragma once
 
 #include "dock-style.hpp"

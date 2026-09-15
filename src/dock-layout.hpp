@@ -5,7 +5,7 @@
 // would not shrink when it had to, a section that fitted at one size and fell
 // apart at another — and none of them are visible from the code that builds the
 // keys. They are visible when you resize the thing. So the arrangement lives
-// here, free of libobs, and a mockup (tools/dock-mockup) drives the SAME code
+// here, free of libobs, and an earlier standalone harness drove the SAME code
 // through every size in a second, instead of a four-minute run of OBS per look.
 //
 // THE MODEL, in three ideas:
@@ -93,7 +93,7 @@ inline constexpr int kModStackW = 152;   // .modstack{width:152px}
 // (MUTE+music+CAM) — minus the frame's own 6+6 px margins and one 4 px grid
 // gap per joint (bandGrid). FIXED, not measured: the hints differ (mark vs
 // word) and a grid stretch preserves the difference, so measuring can never
-// converge — the 2 px wobble the mockup kept reporting. The sums are exact
+// converge — the 2 px wobble the harness kept reporting. The sums are exact
 // (68+68+4 = 44+44+44+8 = 140 + 12 margins = 152): no slack, no phantom.
 inline constexpr int kModiHalfW = (kModStackW - 12 - 4) / 2;  // 68
 inline constexpr int kModiThirdW = (kModStackW - 12 - 8) / 3; // 44
@@ -115,8 +115,8 @@ inline const char *kKeyHeightProperty = "mrKeyH";
 // rilegge per asserire che li ha scritti. Un numero duplicato è due numeri, e
 // quello che va alla deriva è sempre quello senza check.
 //
-// Il mockup NON può verificarle: compila dock-layout e dock-icons, non
-// dock-build, quindi la sua toolbar è una copia. Queste vivono nel gate.
+// Il vecchio harness non poteva verificarle: compilava dock-layout e dock-icons,
+// non dock-build, quindi la sua toolbar era una copia. Queste vivono nel gate.
 inline constexpr int kProjectSelMinW = 132;   // .tb-name{min-width:132px}
 inline constexpr int kToolIcoW = 26;          // .tb-ico{width:26px}
 inline constexpr int kToolIcoH = 25;          // .tb-ico{height:25px}
@@ -201,12 +201,12 @@ void repinKeys(QWidget *root);
 // HOW TALL THE MONITORING ROW MAY BE — ONE COPY OF IT
 // ---------------------------------------------------------------------------
 //
-// It was two: the panel had one and the mockup had another, and they had drifted
-// apart in a way that mattered — the mockup honoured the divider the operator
-// had dragged between the pictures and the list, and the panel did not. At the
-// same size and on the same rig the two produced 357 px cameras and 237 px
-// cameras. The mockup is what every layout decision is judged on, so the panel
-// was being judged against a panel that did not exist.
+// It was two: the panel had one and an earlier harness had another, and they
+// had drifted apart in a way that mattered — the harness honoured the divider
+// the operator had dragged between the pictures and the list, and the panel did
+// not. At the same size and on the same rig the two produced 357 px cameras and
+// 237 px cameras. The harness was what every layout decision was judged on, so
+// the panel was being judged against a panel that did not exist.
 //
 // IT MUST NOT BE READ OFF THE ROW ITSELF. The row's height is DERIVED from the
 // arrangement this number chooses, so feeding it back makes a pass decide from
@@ -345,22 +345,6 @@ inline constexpr int kShortMaxHeight = 540;
 // OBSQTDisplay widgets — which on Windows means re-allocating a D3D swap chain
 // on the graphics thread, several times a second, while a take is recording.
 inline constexpr int kModeHysteresis = 40;
-// HOW FAR APART THE THREE LANES MAY BE PUSHED.
-//
-// The wide arrangement justifies: marks at one end, the speed dial at the
-// other, the transport in the middle. That is the reference panel's own shape
-// and it reads well at the width it was designed for - but the leftover was
-// going into the gaps WITHOUT LIMIT, so on a maximised 1920 px panel the three
-// groups ended up with 400-500 px of nothing between them. Cramped keys with
-// acres of empty panel around them is not justification, it is a strip that
-// gave up.
-//
-// Past this the block stops spreading and is CENTRED instead, so the keys keep
-// their own size (a key that changes size with the window is a key the hand has
-// to find again) and the panel keeps its middle. Gallery-scaled (§6.5): a
-// maximised fullscreen panel has more width to spend on deliberate air
-// between the three groups before it reads as scattered rather than roomy.
-inline int laneGapMax() { return galleryScale() ? 220 : 140; }
 
 // Which arrangement a panel of this size wants. `current` is what it is wearing
 // now, and it is an argument rather than a fresh decision because a threshold
@@ -374,10 +358,10 @@ PanelMode panelModeFor(const QSize &size, PanelMode current,
 const char *panelModeName(PanelMode m);
 
 // THE FOUR FORMS THE DESIGN ARTIFACTS DRAW (quattro-layout), as the gate
-// (real-*.png) and the mockup (mock-*.png) photograph them: the file-name part,
-// the artifact's own panel size, and the Layout preset that forces the form
-// (Config.layoutPreset: 1 Wide, 2 Short, 3 Tall). Fullscreen is worn as Wide
-// until a Fullscreen form exists. ONE table, so the two sets cannot drift.
+// (real-*.png) photographs them: the file-name part, the artifact's own panel
+// size, and the Layout preset that forces the form (Config.layoutPreset: 1
+// Wide, 2 Short, 3 Tall). Fullscreen is worn as Wide until a Fullscreen form
+// exists. ONE table, so nothing drifts.
 struct ArtifactForm {
 	const char *name;
 	int w, h, preset;
@@ -387,23 +371,6 @@ inline constexpr ArtifactForm kArtifactForms[4] = {{"fullscreen", 1920, 1080, 1}
 						   {"short", 900, 340, 2},
 						   {"tall", 320, 900, 3}};
 
-// ---------------------------------------------------------------------------
-// Lane — WHERE A SECTION LIVES ON ITS LINE
-// ---------------------------------------------------------------------------
-//
-// The wide arrangement is two macro-rows of three groups, and the whole point is
-// that the groups are in the SAME PLACE on both rows: marks over the record key
-// at the left, angles over the transport in the middle, exports over the speed
-// dial at the right. Flowing them and spreading the leftover into the gaps put
-// the two middle groups 48 px apart — near-alignment, which reads worse than
-// either alignment or a deliberate offset, and is most of what "the keys are
-// scattered" was.
-//
-// A lane is declared, so it cannot drift. Lane widths are taken across ALL the
-// lines, so the left lane starts at the same x on every row, the right lane ends
-// at the same x on every row, and the centre lane is centred once for all of
-// them.
-enum class Lane { Left, Centre, Right };
 
 // ---------------------------------------------------------------------------
 // FlowLayout — a row of controls that WRAPS instead of squeezing
@@ -463,34 +430,6 @@ QWidget *flowBand(QWidget *parent, const QList<QWidget *> &children,
 
 // Mark the one section per line that absorbs the width nobody claimed.
 QWidget *stretchyZone(QWidget *zone);
-
-// TB T7 — SHED SEPARATORS BEFORE SQUEEZING KEYS. When the single toolbar
-// row tightens past what its minimum needs, the thin rules go first (fence
-// C, then B, then A) — LIVE keeps its whole word. Tall keeps its fence:
-// the Tall figure draws LIVE fenced. Shared by the dock and the mockup's
-// mirror arrangement, so the two shed the same rules in the same order.
-inline void shedToolbarSeparators(QWidget *toolRow, QWidget *sepA,
-				  QWidget *sepB, QWidget *sepC, bool tall)
-{
-	if (!toolRow || !toolRow->layout())
-		return;
-	QWidget *seps[3] = {sepC, sepB, sepA};
-	for (QWidget *s : seps)
-		if (s)
-			s->setVisible(true);
-	if (tall)
-		return;
-	if (toolRow->width() <= 0)
-		return; // pre-layout: the settled pass corrects this
-	QLayout *h = toolRow->layout();
-	for (int i = 0; i < 3; i++) {
-		h->invalidate();
-		if (h->minimumSize().width() <= toolRow->width())
-			return;
-		if (seps[i])
-			seps[i]->setVisible(false);
-	}
-}
 
 // A grid for one section's keys: no margins, the shared row pitch, and FIXED IN
 // HEIGHT — a grid handed more height than it needs shares it out among its rows,
@@ -559,7 +498,7 @@ public:
 
 	// The canvas's own ratio. A vertical canvas is a real thing an operator
 	// streams, so this is not hardcoded to 16:9 — the panel reads it from
-	// obs_get_video_info and the mockup from its own default.
+	// obs_get_video_info and an earlier harness passed its own default.
 	void setRatio(int w, int h);
 
 	// How tall the naming band is. It carries the name; the TALLY is the
@@ -593,10 +532,10 @@ private:
 // ---------------------------------------------------------------------------
 //
 // ONE COPY, and it lives here because it used to be two: the panel had its own
-// arithmetic and the mockup had this one, so a change that made the mockup look
-// right left the panel exactly as it was. That is not a tidiness point — it is
-// the reason two rounds of "the cameras are still postage stamps" were answered
-// with "it is fixed, look at the mockup".
+// arithmetic and an earlier harness had this one, so a change that made the
+// harness look right left the panel exactly as it was. That is not a tidiness
+// point — it is the reason two rounds of "the cameras are still postage stamps"
+// were answered with "it is fixed, look at the harness".
 //
 // Two wrong answers were tried before this one, and both are worth knowing.
 //
@@ -653,8 +592,7 @@ inline constexpr int kBadgeX = 4;     // .box .nm{left:4px}
 inline constexpr int kBadgeY = 3;     // .box .nm{top:3px}
 // Camera column width (artifact tabella K1: 40px tracks) plus the air the
 // operator asked for (2026-09-09): the K1 pair measures 36-38 and 40px
-// left it wall to wall. Lives here so the builder, the gate and the
-// mockup read one number.
+// left it wall to wall. Lives here so the builder and the gate read one number.
 inline constexpr int kCamColW = 44;
 
 // `paneW` is the whole monitoring pane, `bays` how many big pictures share it,
@@ -756,7 +694,7 @@ public: // restored: everything below was public before resizeEvent was
 	// that line for why. A caller outside this class hiding cap_() directly
 	// (captionLabel()->setVisible(false), the first attempt at this) works
 	// for exactly one frame: the very next time anything reapplies this
-	// section's shape — ControlStrip::measure() does, on every resize,
+	// section's shape — the command strip does, on every resize,
 	// every theme change, every poll tick that touches ANY section — apply()
 	// runs again and that unconditional line puts the caption right back,
 	// with no idea a caller had ever asked for anything else. The keys
@@ -816,7 +754,7 @@ public: // restored: everything below was public before resizeEvent was
 	// The hook rather than a width argument, because "what my keys look like
 	// in each of my two shapes" is the section's business — the same reason
 	// the two shapes are declared by hand at the call site instead of being
-	// reflowed by an algorithm. ControlStrip::measure() flips the shape twice
+	// reflowed by an algorithm. The strip's measure() flips the shape twice
 	// to read both sizes, so a section wired up this way is measured correctly
 	// in both without anybody sequencing it.
 	void setOnShape(std::function<void(bool flat)> fn);
@@ -848,182 +786,6 @@ private:
 	int stretchFrom_ = -1, stretchTo_ = -1;
 };
 
-// ---------------------------------------------------------------------------
-// ControlStrip — the sections, and the one decision they share
-// ---------------------------------------------------------------------------
-//
-// It owns no keys. It holds the sections, wraps them by width (FlowLayout), and
-// switches every one of them between TALL and FLAT together — together, because
-// sections of different depths standing side by side is exactly the "shifted"
-// look this whole file exists to remove.
-// THE SIZE HINTS ARE THE WHOLE DESIGN, so they are worth stating plainly:
-//
-//   minimumSizeHint = the FLAT shape   → "you may always make me this short"
-//   sizeHint        = the TALL shape   → "give me this much and I will use it"
-//
-// and the strip wears whichever shape fits the height it was actually handed.
-//
-// Getting this wrong is what pinned the panel. The first version reported the
-// height of the shape it was CURRENTLY wearing — so a tall strip told the dock
-// it could never be shorter than a tall strip, the dock could never reach the
-// height at which the strip would have gone flat, and it therefore never did.
-// The chicken and the egg, in a size hint. (And the minimum leaks through
-// heightForWidth, not through minimumSizeHint: QLayoutItem::minimumHeightForWidth
-// falls back to heightForWidth, so a widget that answers height-for-width has
-// already told the layout its floor. This one does its own geometry instead.)
-class ControlStrip : public QWidget {
-public:
-	explicit ControlStrip(QWidget *parent);
-
-	// `startsLine` opens a new line whatever room is left on the current one.
-	// It is how the panel keeps the arrangement an operator learned: REC at
-	// the left of its line, playback in the middle of it, speed at the right.
-	// Pure flow would put those three wherever they happened to fit, and on a
-	// wide dock that is the fourth, fifth and sixth thing in a row of six.
-	// `rank` is the section's place when the strip is FOLDED, where the
-	// sections become a stack and a stack has a top. Lower is higher up. In
-	// the wide arrangement the declared order is used instead, because there
-	// the sections read left to right and that order is the reference
-	// panel's own.
-	void addBlock(KeyBlock *b, Lane lane, bool startsLine = false,
-		      int rank = 0);
-	bool isFlat() const { return flat_; }
-
-	// THE PANEL'S MODE DRIVES THE STRIP, because width alone cannot tell the
-	// two narrow cases apart: 520 px of a side dock wants a stack, and 1000 px
-	// of a floating window wants the wide rows even though its three lanes no
-	// longer fit side by side. Left alone (-1) the strip decides for itself
-	// from its width, which is what the mockup's strip-only sizes rely on.
-	// A section that would be CUT OFF still folds whatever this says.
-	void setStacked(int on); // -1 auto, 0 lanes, 1 stack
-
-	// The two numbers a parent layout needs, and they are DIFFERENT numbers
-	// at the same width — which is the reason this class exists and the reason
-	// it is added to its parent through ControlStripItem below:
-	//
-	//   minHeightForWidth  the shorter of the two shapes  → "I can live here"
-	//   tallHeightForWidth the tall shape                 → "give me this if you can"
-	//
-	// A widget cannot say both through the normal channel: Qt derives a
-	// widget's minimum-height-for-width FROM its height-for-width, so a plain
-	// child answering "112" at 1500 px also promises never to be shorter, and
-	// a child answering "350" at 400 px demands 350 at every width. The first
-	// version of this strip did the second thing, and the panel showed 350 px
-	// of black between the keys and the event list on a wide dock.
-	// True when every section fits the width in its flat shape. A flat row is
-	// one long line and does not wrap, so choosing flat without asking cuts
-	// keys off the right-hand edge.
-	bool flatFits(int w) const;
-	int minHeightForWidth(int w) const;
-	int tallHeightForWidth(int w) const;
-	// Re-measure a section that changed inside (a camera appeared, the second
-	// bay was switched off) and lay the strip out again.
-	void blockChanged(KeyBlock *b);
-	// GALLERY SCALE (§6.5) NEEDS EVERY BLOCK RE-APPLIED, not just re-laid
-	// out. sectionKeyH()/sectionKeyFoldedH() just started answering a
-	// different number, but KeyBlock::apply() only runs again when a
-	// block's OWN flat/tall state changes (setFlat's guard: "applied_ &&
-	// want == flatActive_") — and toggling gallery in Wide changes neither,
-	// so nothing would re-pin a single key without this. KeyBlock::refresh()
-	// is the one call that forces apply() regardless of that guard.
-	void refreshAllBlocks();
-
-	// WHICH SECTION IS SETTING THE FLOOR, in both of its shapes. "The panel
-	// will not go below 374 px" is a number with nowhere to go: six sections
-	// have an opinion about it and five of them are innocent, and the one that
-	// is not is usually innocent in the shape you are looking at. Used by the
-	// mockup's --check and --report, which is where a floor gets argued about.
-	QString describeBlocks() const;
-
-	QSize sizeHint() const override;
-	QSize minimumSizeHint() const override;
-
-protected:
-	void resizeEvent(QResizeEvent *e) override;
-	// ── THE SEPARATORS THAT REPLACED THE CAPTIONS ────────────────────
-	// Six sections used to be told apart by six headings: MARK, ANGOLI,
-	// RIPRODUZIONE… Side by side that is one line of text for all six and it
-	// is cheap; STACKED it is one line EACH, down a narrow column, which is
-	// six lines of a panel whose scarce axis is height — and each of those
-	// groups is already named by its own keys (● REC, In/Out, C1/C2, the
-	// transport marks, the percentages).
-	//
-	// So the grouping is drawn instead of written: a hairline down the
-	// middle of the gap between two adjacent sections of the same line. It
-	// says the same thing in one pixel of WIDTH, which the panel has, rather
-	// than a line of HEIGHT, which it does not.
-	//
-	// Painted rather than built out of widgets: the gaps move on every
-	// relayout (lanes are re-centred, sections wrap), and a widget per gap
-	// would be a set of children to keep in step with a geometry that is
-	// already computed here.
-	void paintEvent(QPaintEvent *e) override;
-
-private:
-	// WHERE THE RULES GO, collected BY the layout rather than deduced from
-	// block geometry afterwards. The first version read the blocks' rects and
-	// put a rule in the middle of each gap, and in the lane arrangement that
-	// came out STAGGERED: the left lane's width is the widest left section
-	// across every line, so a narrower one (REC, under the wider MARK) ends
-	// early and its gap starts somewhere else. Two rules 80 px apart on two
-	// stacked rows read as a mistake, which is the opposite of what a divider
-	// is for.
-	//
-	// The layout knows the lane boundaries — that is the whole point of lanes
-	// — so it says where the rules are and this only draws them.
-	mutable QVector<QRect> sepRects_;
-	void addSeparator(int x, int top, int height) const;
-
-	struct Entry {
-		KeyBlock *block = nullptr;
-		bool startsLine = false;
-		Lane lane = Lane::Left;
-		int rank = 0;     // order when folded; see addBlock
-		QSize tall, flat; // measured once, per shape
-	};
-
-	// The blocks in the order the current arrangement wants them.
-	QVector<int> orderFor(bool flat) const;
-
-	// Runs the same wrapping in both roles: `apply` false only measures.
-	int layoutLines(int width, bool flat, bool apply) const;
-	// The wide arrangement: lines of three lanes, the lanes aligned across
-	// every line. Returns -1 when the lanes cannot be told apart at this
-	// width, which is the caller's cue to pack instead.
-	int layoutLanes(int width, bool apply) const;
-	// The folded arrangement: a stack, in rank order, on a LEFT SPINE. A
-	// column of sections each centred on its own width is a column with no
-	// edge to read down, which is the narrow-dock version of "scattered".
-	int layoutStack(int width, bool apply) const;
-	// What the old flow did: gather, then spread the leftover into the gaps.
-	// Still the honest answer when the lanes do not fit.
-	int layoutPacked(int width, bool flat, bool apply) const;
-	void measure(Entry &e);
-	void applyShape(bool flat);
-
-	mutable QVector<Entry> blocks_;
-	bool flat_ = false;
-	int forcedStack_ = -1;
-};
-
-// The layout item that carries a ControlStrip into a parent layout, and the
-// only place the two heights above are told apart. Use addStrip() rather than
-// addWidget() — a strip added as a plain widget is a strip whose floor is its
-// preference, which is the bug this whole arrangement is built around.
-class ControlStripItem : public QWidgetItem {
-public:
-	explicit ControlStripItem(ControlStrip *s);
-	bool hasHeightForWidth() const override { return true; }
-	int heightForWidth(int w) const override;
-	int minimumHeightForWidth(int w) const override;
-	QSize minimumSize() const override;
-	QSize sizeHint() const override;
-
-private:
-	ControlStrip *strip_;
-};
-
-void addStrip(QBoxLayout *parent, ControlStrip *s);
 
 // ---------------------------------------------------------------------------
 // TwoPanelStrip — MARCA | REVIEW
@@ -1044,7 +806,7 @@ void addStrip(QBoxLayout *parent, ControlStrip *s);
 // its flat/tall shape itself: tall in Wide, flat in the two narrow shapes.
 // It owns no keys — the caller builds the blocks and hands them over.
 //
-// It is added to its parent with a plain addWidget(): unlike ControlStrip it
+// It is added to its parent with a plain addWidget(): unlike the old strip it
 // does not carry two different heights at one width, because its mode is set
 // from the outside (applyPanelMode → setMode) rather than derived from the
 // height it is handed, so there is no chicken-and-egg to break.
@@ -1054,8 +816,8 @@ void addStrip(QBoxLayout *parent, ControlStrip *s);
 //
 // TAS «Le due barre»: under MARCA|REVIEW there is only the SeekBar, so the
 // notice that had a status row of its own lives here, beside «⚠ N» (TAS footer
-// MARCA: «badge health + testo dell'avviso»). One copy, for the dock and the
-// mockup both.
+// MARCA: «badge health + testo dell'avviso»). One copy: the dock and an
+// earlier harness drew the same row.
 //
 // Lays `foot` out (it must have no layout yet) as stretch · badge · notice ·
 // stretch — TAS .subfoot{justify-content:center}: the two centred as a group —

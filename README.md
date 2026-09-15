@@ -18,7 +18,7 @@
 
 <img src="assets/screenshot-dock.png" alt="The MultiReplay dock inside OBS Studio" width="100%">
 
-The panel adapts to the room it is given — three arrangements, one codebase (`tools/dock-mockup`):
+The panel adapts to the room it is given — one responsive engine, one codebase:
 
 | Wide (docked full-width / floating) | Short (docked under OBS's preview) | Tall (docked to a side) |
 | :---: | :---: | :---: |

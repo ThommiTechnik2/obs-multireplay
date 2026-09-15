@@ -35,8 +35,8 @@
 // bright key with a dim mark on it, which reads as disabled.
 //
 // NOTHING OBS-SPECIFIC IS IN HERE, on purpose: like dock-layout and dock-style,
-// this file is driven by tools/dock-mockup, which is where an icon set is judged
-// — twenty-two marks at 16 px are looked at together or not at all.
+// an earlier standalone harness could drive it, which is where an icon set was
+// judged — twenty-two marks at 16 px are looked at together or not at all.
 #pragma once
 
 #include "dock-style.hpp"
@@ -116,11 +116,11 @@ QIcon iconFor(Icon id, const QColor &tint, int px, qreal dpr = 1.0);
 
 // A 12px enable tick that owns its own geometry (artifact tabella K1: .cb).
 // A textless QCheckBox minimum is style pixel metrics (measured 31px under
-// OBS against ~12 in the mockup: PM_Indicator + label spacing + focus
+// OBS against ~12 in the deleted mockup: PM_Indicator + label spacing + focus
 // frame), and no sheet rule reaches PM_* — pinning the widget clipped the
 // painting instead. A pixmap on a QLabel is exactly 12px on every style and
 // DPI: no indicator metrics, no focus frame, no label spacing. Shared (not
-// per-file) so the mockup draws the same mark the panel wears.
+// per-file) so an earlier harness drew the same mark the panel wears.
 QPixmap tickBoxPixmap(bool on, const QColor &edge, const QColor &fill,
 		      const QColor &mark, qreal dpr = 1.0);
 
@@ -199,7 +199,7 @@ inline IconTints tintsFor(const Scheme &s)
 }
 
 // The four states, for one role. Kept beside tintsFor so the mapping is read
-// next to the colours it maps, and shared by setKeyIcon and the mockup.
+// next to the colours it maps; used by setKeyIcon and, once, the harness.
 inline IconTints tintsForRole(const IconTints &t, IconRole role)
 {
 	IconTints r = t;

@@ -8,6 +8,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 #include "angle-channels.hpp"
 #include "dock-internal.hpp"
 #include "dock-layout.hpp"
+#include "responsive-widgets.hpp"
 #include "error-locale.hpp"
 #include "dock-style.hpp"
 #include "dock-assets.hpp"
@@ -1093,7 +1094,7 @@ MultiReplayDock::MultiReplayDock(QWidget *parent) : QWidget(parent)
 	// was never a design decision either — it was the width of the WIDE
 	// arrangement of the widest section, demanded at every size, including the
 	// sizes at which the strip would have folded instead (see
-	// ControlStrip::minimumSizeHint).
+	// the command strip's minimumSizeHint).
 	setMinimumWidth(300);
 	// THE SHEET IS BUILT, NOT A CONSTANT. It carries the operator's theme
 	// choice and the colours OBS is currently themed with; applyTheme() is
@@ -1404,7 +1405,7 @@ void MultiReplayDock::applyMonitorsRoom()
 // HOW TALL THE MONITORING BLOCK MAY BE, and it must not be read off the block
 // itself: that height is DERIVED from the arrangement this number chooses, so
 // feeding it back in makes a pass decide from whatever the widget happened to be
-// mid-settle - measured in the mockup, 100 px, which picked an arrangement of
+// mid-settle - measured in the harness, 100 px, which picked an arrangement of
 // 78 px stamps. What the splitter is willing to give depends only on the panel
 // and a constant, so it is the same on every pass.
 //
@@ -1412,13 +1413,13 @@ void MultiReplayDock::applyMonitorsRoom()
 // for the same reason: it stops being derived from anything.
 int MultiReplayDock::monitorRoomH() const
 {
-	// ONE COPY OF THIS ARITHMETIC, in dock-layout, shared with the mockup.
-	// There were two, and they disagreed about the one thing that mattered:
-	// the mockup honoured the divider the operator had dragged between the
-	// pictures and the list, and this did not. At 1090x811 on a two-camera
-	// rig the mockup drew 357 px cameras filling the row and the panel drew
-	// 237 px ones with a 240 px band beside them — and the mockup is what
-	// every layout decision here is judged on.
+	// ONE COPY OF THIS ARITHMETIC, in dock-layout. There were two, and they
+	// disagreed about the one thing that mattered: the harness honoured the
+	// divider the operator had dragged between the pictures and the list, and
+	// this did not. At 1090x811 on a two-camera rig the harness drew 357 px
+	// cameras filling the row and the panel drew 237 px ones with a 240 px
+	// band beside them — and the harness was what every layout decision here
+	// was judged on.
 	return monitorRoomFor({height(),
 			       splitter_ ? splitter_->height() : height(),
 			       previewPane_ ? previewPane_->height() : 0,
@@ -1505,30 +1506,25 @@ void MultiReplayDock::applyPanelMode(PanelMode m, bool force)
 	// moreBlock_ is ever rebuilt.)
 	applyTallCollapse(m == PanelMode::Tall);
 
-	// THE TOOLBAR'S ROW COUNT (spec §1/§5): one row in Wide/Short, three in
-	// Tall — moves the actual widgets, builds nothing twice. Before the
-	// search-collapse logic below: that logic asks which ROW search_ is in
-	// right now, and arrangeToolbar is what just decided that.
+	// THE TOOLBAR IS ONE WRAPPING FLOW NOW: arrangeToolbar() is policy only
+	// (labels, key sizes, which search control is active) and then refreshes
+	// the engine, which decides where each control lands. Nothing is moved
+	// between rows here.
 	arrangeToolbar(m);
 
-	// SEARCH COLLAPSES TO ITS KEY only in SHORT (spec §7: "sotto ~1000 px
-	// si riduce a icona 🔍 che apre il campo"). The key is a real QToolButton
-	// (buildToolbar): no event filter, no "clickable" property — a press
-	// shows the field and hands it the focus. Wide keeps the field always
-	// visible because there is room for it beside the rest of the row; Tall
-	// ALSO keeps it always visible, but on a row of its own (spec §5's
-	// "campo ricerca esteso") — collapsing it there would leave that whole
-	// second row empty.
+	// SEARCH COLLAPSES TO ITS KEY only in SHORT. The key is a real
+	// QToolButton: a press shows the field and hands it the focus. The field's
+	// presence is the flow's "active" flag now, not a raw setVisible the flow
+	// would clear on its next pass; its width is still the drawing's.
 	if (search_ && searchIcon_) {
 		const bool narrow = m == PanelMode::Short;
-		if (narrow) {
-			search_->setVisible(false);
-			search_->setProperty("mrNarrow", true);
-			search_->setMinimumWidth(kSearchMinWNarrow);
-		} else {
-			search_->setVisible(true);
-			search_->setProperty("mrNarrow", false);
-			search_->setMinimumWidth(kSearchMinW);
+		search_->setProperty("mrNarrow", narrow);
+		search_->setMinimumWidth(narrow ? kSearchMinWNarrow
+						: kSearchMinW);
+		if (toolbarFlow_) {
+			toolbarFlow_->setControlActive(search_, !narrow);
+			toolbarFlow_->setControlActive(searchIcon_, narrow);
+			toolbarFlow_->refresh();
 		}
 	}
 
@@ -1544,7 +1540,7 @@ void MultiReplayDock::applyPanelMode(PanelMode m, bool force)
 	// A mode change rewrites how short the panel may be, so a panel asked for
 	// a size that only the NEW arrangement can hold takes two resize events to
 	// get there: the first arrives while the old floor is still in force. The
-	// mockup's --check measures it (a top-level asked for 1400x340 lands on
+	// harness's --check measured it (a top-level asked for 1400x340 lands on
 	// 404, then 340).
 	//
 	// `layout()->invalidate()` here was the obvious fix and was MEASURED TO DO
@@ -1877,13 +1873,12 @@ void MultiReplayDock::applyPreviewAspect()
 		if (haveTiles)
 			monitorSplit_->setSizes({bayH, stripH});
 	} else {
-		// ONE PIECE OF ARITHMETIC, SHARED WITH THE MOCKUP (tileBlockFor,
-		// in dock-layout). This used to be a second, simpler copy here -
-		// a fixed 150 px ceiling and a flat share of the width - and the
-		// two disagreed: beside an 840 px A the cameras came out as two
-		// stamps with 270 px of empty panel under them, while the mockup,
-		// which is what every layout decision was being judged on, drew
-		// something else entirely.
+		// ONE PIECE OF ARITHMETIC (tileBlockFor, in dock-layout). This used
+		// to be a second, simpler copy here - a fixed 150 px ceiling and a
+		// flat share of the width - and the two disagreed: beside an 840 px A
+		// the cameras came out as two stamps with 270 px of empty panel under
+		// them, while the harness, which is what every layout decision was
+		// being judged on, drew something else entirely.
 		int tilesW = 0, blockH = 0;
 		TileBlock tb0;
 		if (haveTiles) {
@@ -2103,7 +2098,7 @@ void MultiReplayDock::applyPreviewSplit(int want)
 // Asking a widget for its minimumSizeHint ACTIVATES its layout, and doing that
 // anywhere inside the resize cascade - in here, or in applyPanelMode - does not
 // merely read a number: the pass it forces is the one that stays on screen.
-// Measured on the mockup, which has the same layer under it: the six speed
+// Measured on the harness, which had the same layer under it: the six speed
 // presets came out 38x16 instead of 38x22, in every arrangement, and its own
 // hit-target check is what caught it.
 //
@@ -4817,7 +4812,7 @@ QWidget *MultiReplayDock::buildAngleCell(int eventId, int cam0, bool on,
 	tick->setObjectName(QStringLiteral("mrAngleTick"));
 	// A DRAWN MARK, not a QCheckBox (artifact K1: .cb 12px). A textless box
 	// minimum is style pixel metrics — measured 31px under OBS against ~12
-	// in the mockup (PM_Indicator + label spacing + focus frame) — and no
+	// in the harness (PM_Indicator + label spacing + focus frame) — and no
 	// sheet rule reaches PM_*, so pinning the widget clipped the painting
 	// instead. A pixmap on a label is exactly 12px on every style and DPI.
 	tick->setPixmap(tickBoxPixmap(on, QColor(sc().textMuted),

@@ -15,6 +15,7 @@ into their own translation units keeps each concern reviewable on its own.
 #include "angle-channels.hpp"
 #include "dock-internal.hpp"
 #include "dock-layout.hpp"
+#include "responsive-widgets.hpp"
 #include "dock-probe.hpp"
 #include "error-locale.hpp"
 #include "dock-style.hpp"
@@ -120,8 +121,7 @@ QWidget *MultiReplayDock::buildToolbar()
 {
 	auto *box = new QWidget(this);
 	// Named: the sheet keeps it transparent (a panel container), and the
-	// zone-order checks find it by this name (dock-probe.hpp), in the gate
-	// and in the mockup.
+	// zone-order checks find it by this name (dock-probe.hpp) in the gate.
 	box->setObjectName(probe::toolbarBoxName());
 	auto *v = new QVBoxLayout(box);
 	// .tbar{padding:7px 9px} and .tbar.tall{row-gap:7px}. Without the
@@ -147,26 +147,11 @@ QWidget *MultiReplayDock::buildToolbar()
 	toolSepB_ = mkVSep();
 	toolSepC_ = mkVSep();
 
-	auto *topRow = new QWidget(box);
-	// NAMED so the sheet can reach the whole bar at once. The artifact
-	// declares the typeface on the BAR (.tbar{font-family:var(--ff-label)}),
-	// not on each key; only the project name, LIVE and the search field step
-	// out of it. Left unnamed, the bar inherited the BODY family, which is
-	// wider than the condensed one the drawing uses - and the row overflowed,
-	// clipping LIVE against the panel edge.
-	topRow->setObjectName(QStringLiteral("mrToolbar"));
-	toolRow1_ = topRow;
-	auto *h = new QHBoxLayout(topRow);
-	h->setContentsMargins(0, 0, 0, 0);
-	h->setSpacing(7); // .tbar{gap:7px}
-	// TALL'S OWN SEARCH ROW (spec §5): built here so arrangeToolbar() only
-	// ever moves widgets, never creates them. Hidden until Tall asks for it.
-	toolRow2_ = new QWidget(box);
-	toolRow2_->setObjectName(QStringLiteral("mrToolbar"));
-	auto *h2 = new QHBoxLayout(toolRow2_);
-	h2->setContentsMargins(0, 0, 0, 0);
-	h2->setSpacing(5);
-	toolRow2_->hide();
+	// NO PERMANENT ROWS ANY MORE. The bar was a QVBoxLayout of one or two
+	// QHBoxLayouts that arrangeToolbar() re-filled; it is now a single
+	// ResponsiveFlow built at the END of this function, once every control
+	// exists, so the wrap is the engine's decision and no widget is ever
+	// moved between rows.
 
 	// THE PROJECT SELECTOR (spec §1): a menu button, not a label — Nuovo,
 	// Apri…, and the list of projects on disk. Wider than the other toolbar
@@ -265,12 +250,18 @@ QWidget *MultiReplayDock::buildToolbar()
 			return;
 		// In Short the field is a guest the key summoned: a press shows
 		// it, a second press sends it back. Elsewhere it is always out,
-		// so the key just hands it the focus.
-		if (panelMode_ == PanelMode::Short && search_->isVisible()) {
-			search_->setVisible(false);
+		// so the key just hands it the focus. The field's presence is
+		// the flow's "active" flag now, not a raw setVisible the flow
+		// would clear on its next pass.
+		const bool fieldOut =
+			panelMode_ == PanelMode::Short && toolbarFlow_ &&
+			toolbarFlow_->controlActive(search_);
+		if (panelMode_ == PanelMode::Short && fieldOut) {
+			toolbarFlow_->setControlActive(search_, false);
 			searchIcon_->setFocus(Qt::MouseFocusReason);
 		} else {
-			search_->setVisible(true);
+			if (toolbarFlow_)
+				toolbarFlow_->setControlActive(search_, true);
 			search_->setFocus(Qt::MouseFocusReason);
 		}
 	});
@@ -302,8 +293,8 @@ QWidget *MultiReplayDock::buildToolbar()
 	// summoned the field for, and it goes back to icon-only on its own —
 	// otherwise the row wears a field nobody asked to keep.
 	connect(search_, &QLineEdit::editingFinished, this, [this]() {
-		if (panelMode_ == PanelMode::Short && search_)
-			search_->setVisible(false);
+		if (panelMode_ == PanelMode::Short && toolbarFlow_)
+			toolbarFlow_->setControlActive(search_, false);
 	});
 
 	// the reference controller's Live button, in the reference controller's place and the reference controller's colour: red means the
@@ -424,11 +415,8 @@ QWidget *MultiReplayDock::buildToolbar()
 	// take. It goes beside the full-screen key because those two are the pair
 	// that are about the panel itself rather than about the replay.
 	gearBtn_ = buildGearMenu();
-	// TOOLS CLUSTER, THEN A GAP, THEN LIVE — in Wide/Short. Tall groups them
-	// differently (spec §5); arrangeToolbar() below is what actually places
-	// every one of these keys, in both h and h2.
-	v->addWidget(topRow);
-	v->addWidget(toolRow2_);
+	// Every toolbar control is placed by the wrapping flow built at the end
+	// of this function; nothing is added to a row here.
 
 	// The 20 lists as TABS, not a dropdown. the reference controller shows them all at once and
 	// the operator jumps between them mid-match without opening anything; a
@@ -605,222 +593,142 @@ QWidget *MultiReplayDock::buildToolbar()
 	listTabs_->installEventFilter(this);
 	positionBankFade();
 
-	// THE INITIAL ARRANGEMENT (spec §1/§5). panelMode_ already carries its
-	// real default (Wide) at this point in construction; applyPanelMode's
-	// own call to arrangeToolbar(), moments later, re-asserts whatever the
-	// panel's actual starting size resolves to and is a no-op if it agrees.
+	// THE BAR ITSELF: one wrapping flow. The four zones are bound as GROUPS
+	// (identity · banks · search+tools · Live) so a wrap never splits a
+	// zone, and each hairline carries the group it leads, so it travels with
+	// it instead of stranding at a row edge. Nothing here collapses: the
+	// toolbar has no "… More", it just wraps.
+	toolbarFlow_ = new ui::ResponsiveFlow(box);
+	// Named "mrToolbar" so the sheet's .tbar rules (the LABEL typeface on the
+	// bar, not on each key) still reach this widget, as they reached the row
+	// it replaces.
+	toolbarFlow_->setObjectName(QStringLiteral("mrToolbar"));
+	{
+		using ui::Priority;
+		// NO GROUPS: the toolbar packs control by control. A zone bound as
+		// one group cannot be split, so a tools cluster wider than the
+		// column (search field + Monitors + ⛶ + ⚙ > 294 px) would ship as
+		// ONE overflowing row and clip the last key — measured in Tall
+		// before this. The zones are held apart by ORDER and the flow's
+		// gaps; the hairlines are hidden as soon as the bar wraps.
+		toolbarFlow_->addControl(projectBtn_, 0, Priority::Primary);
+		toolbarFlow_->addControl(toolSepA_, 0, Priority::Tertiary);
+		toolbarFlow_->addControl(bankRow_, 0, Priority::Secondary);
+		toolbarFlow_->addControl(toolSepB_, 0, Priority::Tertiary);
+		toolbarFlow_->addControl(searchIcon_, 0, Priority::Primary);
+		toolbarFlow_->addControl(search_, 0, Priority::Primary);
+		toolbarFlow_->addControl(monitorsBtn_, 0, Priority::Primary);
+		toolbarFlow_->addControl(fullScreenBtn_, 0, Priority::Primary);
+		toolbarFlow_->addControl(gearBtn_, 0, Priority::Primary);
+		toolbarFlow_->addControl(toolSepC_, 0, Priority::Tertiary);
+		toolbarFlow_->addControl(liveBtn_, 0, Priority::Critical);
+	}
+	addResponsiveFlow(v, toolbarFlow_);
+
+	// POLICY, not placement: labels, key sizes and which of the search pair
+	// is active for the starting mode. applyPanelMode() re-runs it when the
+	// shape changes.
 	arrangeToolbar(panelMode_);
 
 	return box;
 }
 
 // ---------------------------------------------------------------------------
-// The toolbar's row count follows the panel mode (artifact «La toolbar»,
-// dcd11c4d, and spec-unico §1/§7): ONE row in Wide — project · banks ·
-// search+tools · Live — the SAME row in Short but with search and Monitors
-// worn as icons (tabella responsive: "Short ~900px, 1 riga icone"), and
-// THREE rows in Tall (project/Live/tools · search alone · banks). Every
-// widget here already exists (buildToolbar built it once); this only ever
-// MOVES them between h (toolRow1_), h2 (toolRow2_) and toolbarV_
-// (bankRow_'s own row) — never a second copy of a button whose
-// checked/current state could go stale against the first.
+// arrangeToolbar — the toolbar's MODE POLICY, now that the bar wraps
+// ---------------------------------------------------------------------------
+//
+// The bar is one ResponsiveFlow (built in buildToolbar): project · banks ·
+// search+tools · Live, wrapped by width, each zone bound as a group. This
+// function no longer decides rows or positions; it applies what the drawing
+// says about a control's own look in a shape — the word or the icon (LIVE
+// and Monitors whole outside Short), the key size (26x25, 23x25 in Tall),
+// the project selector's cap, and which of the search pair is on the bar
+// (field outside Short, key in Short) — and then re-measures the flow.
 //
 // THE CLUSTER ORDER IS THE SPEC'S, NOT THE CONCEPT'S (spec-unico §1 wins:
-// "🔍 ▦Monitors ⛶ ⚙"). The row used to run search · Monitors · gear ·
-// layout, which matched neither document — it was in one of the two
-// positions by accident, and the gate (toolbar_tool_cluster_order) now
-// asserts it instead.
+// "🔍 ▦Monitors ⛶ ⚙"): the flow places them in declared order and the gate
+// asserts that order by reading order, not by an x-sort that a wrap would
+// interleave.
 // ---------------------------------------------------------------------------
 
 void MultiReplayDock::arrangeToolbar(PanelMode m)
 {
-	if (!toolRow1_ || !toolRow2_ || !bankRow_ || !toolbarV_)
+	if (!toolbarFlow_)
 		return;
-	// THREE arrangements: Wide keeps every word, Short keeps the one row
-	// but iconises search+Monitors, Tall stacks three rows. Short used to
-	// ride the Wide branch, leaving "Monitors" spelled out at 900 px — the
-	// exact row the drawing shows icon-only.
-	const int want =
-		(m == PanelMode::Tall) ? 2 : (m == PanelMode::Short) ? 1 : 0;
-	if (want == toolbarArrangement_)
-		return;
-	toolbarArrangement_ = want;
+	// POLICY ONLY. The flow decides where each control goes and how the bar
+	// wraps; what is left here is what the drawing says about a control's
+	// OWN look in this shape — the word or the icon, the key size, and which
+	// of the search pair is on the bar. A row count and an x are the
+	// engine's business now, so a mode change no longer moves a widget.
+	toolbarArrangement_ = (int)m;
 
-	auto *h1 = qobject_cast<QHBoxLayout *>(toolRow1_->layout());
-	auto *h2 = qobject_cast<QHBoxLayout *>(toolRow2_->layout());
-	if (!h1 || !h2)
-		return;
+	const bool shortMode = (m == PanelMode::Short);
+	const bool tallMode = (m == PanelMode::Tall);
 
-	// CLEAR BOTH ROWS COMPLETELY. Every entry here is either a widget item
-	// (taking it does not delete the widget — it only detaches it from this
-	// layout) or a stretch/spacing item (which owns nothing else and must be
-	// deleted itself, the same way Qt's own "clear a layout" recipe does).
-	QLayoutItem *item;
-	while ((item = h1->takeAt(0)) != nullptr)
-		delete item;
-	while ((item = h2->takeAt(0)) != nullptr)
-		delete item;
-	// bankRow_ is the one piece with a THIRD possible home — its own row in
-	// toolbarV_ — rather than just h1 vs h2, so it needs its own detach.
-	h1->removeWidget(bankRow_);
-	toolbarV_->removeWidget(bankRow_);
+	// LIVE always wears its word; Monitors keeps it too (D7) everywhere the
+	// drawing spells it, which is everywhere but Short.
+	liveBtn_->setText(QString::fromUtf8(obs_module_text("Dock.LiveMode"))
+				  .toUpper());
+	if (exportBtn_)
+		exportBtn_->setText(QString::fromUtf8(
+			obs_module_text("Dock.Export")));
 
-	if (want == 0) {
-		// WIDE (spec-unico §1): one row, three zones behind thin
-		// rules, Live isolated past its own gap and rule. Full words on
-		// both keys — there is room for them beside a whole extra zone
-		// (the banks) that Tall's row does not carry at all.
-		// Order: search · Monitors · ⛶▾(layout) · ⚙ — the spec's, with
-		// the layout menu BEFORE the gear.
-		liveBtn_->setText(QString::fromUtf8(obs_module_text("Dock.LiveMode"))
-					  .toUpper());
-		monitorsBtn_->setText(
-			QString::fromUtf8(obs_module_text("Dock.Monitors")));
-		// A word key again (see Tall below): the export key gets its label
-		// back outside the column.
-		if (exportBtn_)
-			exportBtn_->setText(QString::fromUtf8(
-				obs_module_text("Dock.Export")));
-		// A word key again: release the icon size Short/Tall pinned.
-		monitorsBtn_->setMinimumSize(QSize(0, 0));
-		monitorsBtn_->setMaximumSize(
-			QSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX));
-		// Icon-only keys wear the drawing's size in every arrangement;
-		// re-asserted here because Tall shrinks them (below) and a mode
-		// change must not leave them shrunk.
-		gearBtn_->setFixedSize(kToolIcoW, kToolIcoH);
-		fullScreenBtn_->setFixedSize(kToolIcoW, kToolIcoH);
-		searchIcon_->setFixedSize(kToolIcoW, kToolIcoH);
-		// .tb-name{min-width:132px}, elided past 280.
-		projectBtn_->setMinimumWidth(kProjectSelMinW);
-		projectBtn_->setMaximumWidth(280);
-		h1->addWidget(projectBtn_);
-		h1->addWidget(toolSepA_);
-		// TB .tb-tabs{max-width:300px} (T1): the strip is capped at
-		// 300+25+3 and only then stops growing — stretch 1 lets it take
-		// its share of the slack, the PLAIN stretch after it takes the
-		// rest (between the banks and the tools), so the strip never
-		// swallows the row and the "+" never strands past the last tab.
-		h1->addWidget(bankRow_, 1);
-		h1->addStretch(1);
-		h1->addWidget(toolSepB_);
-		// TB: outside Short the field stands alone (T3) — the key hides
-		// (a hidden layout item takes no room, so it stays placed).
-		searchIcon_->setVisible(false);
-		h1->addWidget(searchIcon_);
-		h1->addWidget(search_);
-		h1->addWidget(monitorsBtn_);
-		h1->addWidget(fullScreenBtn_);
-		h1->addWidget(gearBtn_);
-		h1->addSpacing(10);
-		h1->addWidget(toolSepC_);
-		h1->addWidget(liveBtn_);
-		toolSepA_->show();
-		toolSepB_->show();
-		toolSepC_->show();
-		toolRow2_->hide();
-		applyToolbarSeparators();
-	} else if (want == 1) {
-		// SHORT (tabella responsive): the Wide row, but search and
-		// Monitors as icons — .tb-ico{26x25} (only Tall narrows to 23).
-		// search_ itself hides until tapped (applyPanelMode's narrow
-		// logic); LIVE keeps its word (wireframe Short).
-		liveBtn_->setText(QString::fromUtf8(obs_module_text("Dock.LiveMode"))
-					  .toUpper());
+	// Icon-only keys wear the drawing's size: .tb-ico{26x25}, and
+	// .tbar.tall .tb-ico{23x25}.
+	const int icw = tallMode ? kToolIcoWTall : kToolIcoW;
+	searchIcon_->setFixedSize(icw, kToolIcoH);
+	fullScreenBtn_->setFixedSize(icw, kToolIcoH);
+	gearBtn_->setFixedSize(icw, kToolIcoH);
+
+	// Monitors: a word key in Wide/Tall, an icon in Short.
+	if (shortMode) {
 		monitorsBtn_->setText(QString());
 		monitorsBtn_->setFixedSize(kToolIcoW, kToolIcoH);
-		// Word back on (see Tall below): Short is wide, the bar fits.
-		if (exportBtn_)
-			exportBtn_->setText(QString::fromUtf8(
-				obs_module_text("Dock.Export")));
-		gearBtn_->setFixedSize(kToolIcoW, kToolIcoH);
-		fullScreenBtn_->setFixedSize(kToolIcoW, kToolIcoH);
-		searchIcon_->setFixedSize(kToolIcoW, kToolIcoH);
-		projectBtn_->setMinimumWidth(kProjectSelMinW);
-		projectBtn_->setMaximumWidth(280);
-		h1->addWidget(projectBtn_);
-		h1->addWidget(toolSepA_);
-		// Capped like Wide (T1): the strip takes its share up to the cap,
-		// the plain stretch after it takes the rest.
-		h1->addWidget(bankRow_, 1);
-		h1->addStretch(1);
-		h1->addWidget(toolSepB_);
-		// TB: the key stands alone in Short (T3) — the field hides until
-		// tapped (applyPanelMode's narrow logic).
-		searchIcon_->setVisible(true);
-		h1->addWidget(searchIcon_);
-		h1->addWidget(search_);
-		h1->addWidget(monitorsBtn_);
-		h1->addWidget(fullScreenBtn_);
-		h1->addWidget(gearBtn_);
-		h1->addSpacing(10);
-		h1->addWidget(toolSepC_);
-		h1->addWidget(liveBtn_);
-		toolSepA_->show();
-		toolSepB_->show();
-		toolSepC_->show();
-		toolRow2_->hide();
-		applyToolbarSeparators();
 	} else {
-		// TALL (spec §5): three rows —
-		//   1) [project ▾] … ● LIVE (fenced by rules) … Monitors ⛶▾ ⚙
-		//   2) the search field, extended to the row's full width
-		//   3) banks + "+" (bankRow_, in its own row of toolbarV_)
-		//
-		// BOTH WORDS STAY (D7 + the Tall figure: «▦Monitors», LIVE whole).
-		// Row 1 is fenced, not roomy — the project selector's Tall cap
-		// (150) is what pays for it, squeezing first when the names run
-		// long.
-		liveBtn_->setText(QString::fromUtf8(obs_module_text("Dock.LiveMode"))
-					  .toUpper());
 		monitorsBtn_->setText(
 			QString::fromUtf8(obs_module_text("Dock.Monitors")));
 		monitorsBtn_->setMinimumSize(QSize(0, 0));
 		monitorsBtn_->setMaximumSize(
 			QSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX));
-		// THE EXPORT KEY KEEPS ITS WORD (TAB E6): the tools bar wraps onto
-		// two lines in the ~320 px column now, so nothing has to hide.
-		if (exportBtn_)
-			exportBtn_->setText(
-				QString::fromUtf8(obs_module_text("Dock.Export")));
-		// .tbar.tall .tb-ico{width:23px} — height stays 25.
-		monitorsBtn_->setFixedSize(kToolIcoWTall, kToolIcoH);
-		gearBtn_->setFixedSize(kToolIcoWTall, kToolIcoH);
-		fullScreenBtn_->setFixedSize(kToolIcoWTall, kToolIcoH);
-		searchIcon_->setFixedSize(kToolIcoWTall, kToolIcoH);
-		// .tbar.tall .tb-name{min-width:0}, .pn elided past 150.
+	}
+
+	// The project selector: same height and font, wider where there is room,
+	// capped hard in the column (.tb-name{min-width:132px}; Tall 150).
+	if (tallMode) {
 		projectBtn_->setMinimumWidth(0);
 		projectBtn_->setMaximumWidth(150);
-		h1->addWidget(projectBtn_);
-		h1->addStretch(1);
-		h1->addWidget(toolSepA_);
-		h1->addWidget(liveBtn_);
-		h1->addWidget(toolSepB_);
-		h1->addWidget(monitorsBtn_);
-		h1->addWidget(fullScreenBtn_);
-		h1->addWidget(gearBtn_);
-		toolSepA_->show();
-		toolSepB_->show();
-		toolSepC_->hide();
-
-		// TB: the field rides row 2 alone, full width (T3) — the key
-		// stays placed but hidden.
-		searchIcon_->setVisible(false);
-		h2->addWidget(search_, 1);
-		toolRow2_->show();
-
-		// After toolRow1_ (index 0) and toolRow2_ (index 1).
-		toolbarV_->insertWidget(2, bankRow_);
+	} else {
+		projectBtn_->setMinimumWidth(kProjectSelMinW);
+		projectBtn_->setMaximumWidth(280);
 	}
-	bankRow_->show();
+
+	// The search pair: Wide and Tall show the FIELD and the magnifier only
+	// hands it the focus; Short shows the KEY, and the field is a guest it
+	// summons (the click handler and applyPanelMode drive that).
+	if (shortMode) {
+		toolbarFlow_->setControlActive(search_, false);
+		toolbarFlow_->setControlActive(searchIcon_, true);
+	} else {
+		toolbarFlow_->setControlActive(searchIcon_, false);
+		toolbarFlow_->setControlActive(search_, true);
+	}
+
+	// A label just changed size: re-measure before laying out.
+	toolbarFlow_->refresh();
+	applyToolbarSeparators();
 }
 
-// TB T7: when the single row tightens, the separators go before LIVE gets
-// squeezed (shared rule: shedToolbarSeparators, dock-layout.hpp).
+// TB T7, expressed for a wrapping bar: a hairline belongs BETWEEN two zones
+// on one line. Once the bar wraps, a rule can land at a row edge with nothing
+// on one side of it, so they go and the flow's gaps do the separating.
 void MultiReplayDock::applyToolbarSeparators()
 {
-	shedToolbarSeparators(toolRow1_, toolSepA_, toolSepB_, toolSepC_,
-			      toolbarArrangement_ == 2);
+	if (!toolbarFlow_)
+		return;
+	const bool oneRow = toolbarFlow_->plan().rowCount <= 1;
+	toolSepA_->setVisible(oneRow);
+	toolSepB_->setVisible(oneRow);
+	toolSepC_->setVisible(oneRow);
 }
 
 // ---------------------------------------------------------------------------
@@ -1448,7 +1356,7 @@ KeyBlock *MultiReplayDock::buildModes()
 		if (blk->isCompact()) {
 			// Natural widths and the column's width — with one
 			// floor: ♫ measures 19 px natural, under the 20 px a
-			// key needs to stay hittable (mockup checkHitTargets).
+			// key needs to stay hittable (the harness's floor).
 			for (QPushButton *b :
 			     {lastBtn, loopBtn_, muteBtn_, musicBtn_}) {
 				b->setMinimumWidth(20);
@@ -1759,8 +1667,8 @@ QWidget *MultiReplayDock::buildBottomBar()
 	marcaFoot->setFixedHeight(kKeyH + 6);
 	// TAS .subfoot{justify-content:center}: «⚠ N» + the notice's sentence,
 	// centred as a group — a lone badge hugging the left edge reads as a
-	// layout that gave up halfway. The row is dock-layout's, shared with the
-	// mockup; updateChannelStrip() fills the label.
+	// layout that gave up halfway. The row is dock-layout's;
+	// updateChannelStrip() fills the label.
 	statusNotice_ = buildMarcaFootRow(marcaFoot, healthBtn_);
 	strip_->setFooters(marcaFoot, reviewFoot);
 
@@ -2515,8 +2423,8 @@ QWidget *MultiReplayDock::buildEvents()
 	// The table's own mono 11px (artifact tabella .etbl/.68rem), stated on
 	// the WIDGET rather than only in the sheet: items inherit it at paint,
 	// and a font on the widget is a question the gate can answer from
-	// outside (the mockup's one-size check reads it). Same number as the
-	// ::item rule below — the two say one thing, twice, on purpose.
+	// outside. Same number as the ::item rule below — the two say one thing,
+	// twice, on purpose.
 	{
 		QFont tf(monoFamily());
 		tf.setPixelSize(11);

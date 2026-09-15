@@ -171,8 +171,16 @@ target_sources(
     src/dock-build.cpp
     src/dock-layout.cpp
     src/dock-layout.hpp
+    # THE responsive layout engine: one wrapping flow, priority collapse and
+    # an aspect-chosen split, replacing the three hand-authored arrangements.
+    # The decision logic is pure (src/responsive-layout.hpp, unit-tested in
+    # tests/); these two files are only the Qt skin over it.
+    src/responsive-layout.hpp
+    src/responsive-widgets.cpp
+    src/responsive-widgets.hpp
     # The panel's typefaces, embedded so "identical to the artifact" is the same
-    # answer on every rig. Pure Qt: the mockup compiles this too.
+    # answer on every rig. Pure Qt, and deliberately free of libobs so it can be
+    # unit-tested and reused outside the plugin.
     src/dock-fonts.cpp
     src/dock-fonts.hpp
     src/multireplay-fonts.qrc

@@ -34,6 +34,9 @@ start.
 
 namespace multireplay {
 class PlaybackCoordinator;
+namespace ui {
+class ResponsiveFlow;
+}
 }
 
 #include <QPointer>
@@ -617,7 +620,7 @@ private:
 	QWidget *buildMultiview();
 	// The six sections of the control strip, in the order they are added to
 	// it: REC | MARK | ANGOLI | RIPRODUZIONE | VELOCITA | EXPORT. Each one
-	// declares a tall shape and a flat one and lets ControlStrip decide (see
+	// declares a tall shape and a flat one and lets the command strip decide (see
 	// dock-layout.hpp).
 	// The gear and its menu — Settings, projects, tags, chapters. It lives in
 	// the TOOLBAR with the other panel-wide keys, not inside the record
@@ -650,7 +653,7 @@ private:
 	// the whole selection as one file.
 	QPushButton *buildExportKey();
 	// The command area: MARCA | REVIEW (dock-layout.hpp). It replaced the
-	// six-section ControlStrip.
+	// six-section strip that came before it.
 	TwoPanelStrip *strip_ = nullptr;
 	// The camera section, kept because switching the second bay on or off
 	// changes how many rows it has and the strip has to be told.
@@ -1544,17 +1547,13 @@ private:
 	QTabBar *listTabs_ = nullptr; // the 20 lists, broadcast-style tabs
 	QToolButton *addBankBtn_ = nullptr; // "+" — show one more list (spec §1)
 	QLineEdit *search_ = nullptr;
-	// THE TOOLBAR'S ROW COUNT FOLLOWS THE PANEL MODE (spec §1/§5): one row in
-	// Wide/Short (project · banks · search+tools · Live, three thin rules
-	// between the four zones) and three rows in Tall (project/Live/tools ·
-	// search alone · banks). toolRow1_ and toolRow2_ are permanent — always
-	// mounted in the toolbar's own QVBoxLayout — and arrangeToolbar() moves
-	// the ACTUAL widgets (never rebuilds them) between the two, because a
-	// second copy of projectBtn_ would be a second place its state can go
-	// stale against the first.
-	QWidget *toolRow1_ = nullptr;
-	QWidget *toolRow2_ = nullptr; // Tall only: the search field on its own
-	QVBoxLayout *toolbarV_ = nullptr; // owns toolRow1_/toolRow2_/bankRow_
+	// THE TOOLBAR IS ONE WRAPPING FLOW (responsive-layout): project ·
+	// banks · search+tools · Live, wrapped by width, the three thin rules
+	// leading their group. arrangeToolbar() is now POLICY only — labels,
+	// key sizes, which of the search pair is active — and then refreshes
+	// the flow; it no longer moves widgets between rows.
+	ui::ResponsiveFlow *toolbarFlow_ = nullptr;
+	QVBoxLayout *toolbarV_ = nullptr; // owns the flow
 	QWidget *bankRow_ = nullptr; // the list tabs + "+", spec §1
 	// TB .fade (T1): 24px fade over the strip's right end, a child of the
 	// tabs themselves so the lazily-created scroller arrows (later
