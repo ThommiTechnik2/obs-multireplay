@@ -47,6 +47,7 @@ extern "C" {
 #include <QScreen>
 #include <QObject>
 #include <QItemSelectionModel>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QLineEdit>
 #include <QLabel>
@@ -568,6 +569,45 @@ struct DockChecks {
 	bool swapMovesClip = false;
 	bool trimMovedIn = false;
 	bool seekbarZooms = false;
+	// WP-09, the acceptance surface the redesign was answering. Four claims
+	// about the panel as a CONTROL rather than as a state machine, and none
+	// of them is visible to a check that clicks keys and reads the store: a
+	// tooltip nobody filled in, a focus ring that never appears, a dynamic
+	// property the style sheet needs and nobody wrote, a theme whose text is
+	// legible only because the bench happens to run dark.
+	//
+	// UX-15: every VISIBLE key with no text of its own explains itself twice
+	// — once to the pointer (toolTip) and once to a screen reader
+	// (accessibleName). The health badge is exempt while hidden, which is
+	// its resting state: it is not on screen to be announced, and its
+	// tooltip is written when it is shown (dock-poll.cpp). The two bars are
+	// named as themselves: they paint rather than carry text.
+	bool a11yNamesOnKeys = false;
+	int a11yButtonsChecked = 0;
+	// §15.2: the position bar takes focus by Tab and the panel draws that
+	// focus where the operator can see it. Focusable-but-invisible is the
+	// failure this stands in front of, and no key click can see it.
+	bool focusRingVisible = false;
+	// §6/§8: the style sheet colours [recording], [playing], [live] and
+	// [active], and brightens the notice line via [notice]. Those properties
+	// are the ONLY input those rules get; a key whose property is missing
+	// keeps its resting colour whatever the engine says.
+	bool semanticPropsPresent = false;
+	// §8.1/DD-004: every theme's primary text clears 4.5:1 and its focus
+	// ring clears 3.0:1 against the surface it is drawn on. Measured with
+	// the same contrastRatio() the sheet's own focus derivation uses.
+	bool contrastOk = false;
+	double worstTextContrast = 0.0;
+	double worstFocusContrast = 0.0;
+	// UX-08: the note cell is a one-click editor and what is typed reaches
+	// the store; the angle cell's checkbox is the same one-click path for
+	// "is this camera in the replay".
+	bool tableCommentEditsStore = false;
+	bool angleCheckboxEditsStore = false;
+	// UX-07: the on-air row's id is drawn in the PROGRAM colour and never in
+	// the selection's. "It is playing" and "it is selected" must not look
+	// like the same answer.
+	bool onAirIdDistinctFromSelection = false;
 
 	bool dragMovesMarker = false;
 	bool secondsHotkeyMovesPoint = false;
@@ -1643,6 +1683,189 @@ DockChecks runDockChecks(int firstCam, int secondCam,
 			store.setAngleSpeed(evId, editedCam0 + 1, -1.0);
 		}
 
+		// ── UX-08: the two ONE-CLICK editors in the table ---------------
+		//
+		// The search check above has just put the row back and left the
+		// cell as the store holds it, so the gesture on trial here is the
+		// one an operator uses during a match: type into the note cell,
+		// tick the angle's own checkbox — both must reach the store with
+		// no menu and nothing on air. The cells' own handlers do the
+		// writing (textChanged / toggled), so the assertion is on the
+		// STORE, because that is what events.json will hold.
+		if (editedCam0 >= 0) {
+			// --- the note cell, typed into ------------------------
+			const std::string noteBefore = store.description(evId);
+			bool noteCellFound = false;
+			runOnUi([&]() {
+				QTableWidget *t = dock->findChild<QTableWidget *>();
+				if (!t)
+					return;
+				for (int r = 0; r < t->rowCount(); r++) {
+					QTableWidgetItem *idIt = t->item(
+						r, MultiReplayDock::kColId);
+					if (!idIt ||
+					    idIt->data(Qt::UserRole).toInt() != evId)
+						continue;
+					QWidget *nc = t->cellWidget(
+						r, MultiReplayDock::kColNote);
+					auto *cm = nc ? nc->findChild<QLineEdit *>(
+								QStringLiteral(
+									"mrAngleNote"))
+						      : nullptr;
+					if (cm) {
+						cm->setText(QStringLiteral(
+							"GateEdit"));
+						noteCellFound = true;
+					}
+					break;
+				}
+			});
+			std::this_thread::sleep_for(
+				std::chrono::milliseconds(300));
+			c.tableCommentEditsStore =
+				noteCellFound &&
+				store.description(evId) == "GateEdit";
+			obs_log(c.tableCommentEditsStore ? LOG_INFO : LOG_ERROR,
+				"[selftest] dock: note cell %s, store now says "
+				"'%s' (wanted 'GateEdit')",
+				noteCellFound ? "found" : "NOT FOUND",
+				store.description(evId).c_str());
+			// Put the word back through the path under test first, then
+			// the store as a floor under it: a cell the poll rebuilt is
+			// not a reason to leave the operator's event renamed.
+			runOnUi([&]() {
+				QTableWidget *t = dock->findChild<QTableWidget *>();
+				if (!t)
+					return;
+				for (int r = 0; r < t->rowCount(); r++) {
+					QTableWidgetItem *idIt = t->item(
+						r, MultiReplayDock::kColId);
+					if (!idIt ||
+					    idIt->data(Qt::UserRole).toInt() != evId)
+						continue;
+					QWidget *nc = t->cellWidget(
+						r, MultiReplayDock::kColNote);
+					if (auto *cm = nc
+							       ? nc->findChild<
+									 QLineEdit *>(
+									 "mrAngleNote")
+							       : nullptr)
+						cm->setText(QString::fromStdString(
+							noteBefore));
+					break;
+				}
+			});
+			std::this_thread::sleep_for(
+				std::chrono::milliseconds(300));
+			store.setDescription(evId, noteBefore);
+
+			// --- the angle's checkbox, ticked ---------------------
+			//
+			// A flip and back, not a poke: a box that was already off
+			// would satisfy "the store says off" without the click
+			// having done anything. ON first, then OFF, and the store
+			// is read while it is off. The slot is the first
+			// configured camera — the same one the cell check above
+			// reads its column from.
+			bool angleCellFound = false;
+			runOnUi([&]() {
+				QTableWidget *t = dock->findChild<QTableWidget *>();
+				if (!t)
+					return;
+				for (int r = 0; r < t->rowCount(); r++) {
+					QTableWidgetItem *idIt = t->item(
+						r, MultiReplayDock::kColId);
+					if (!idIt ||
+					    idIt->data(Qt::UserRole).toInt() != evId)
+						continue;
+					QWidget *cell = t->cellWidget(
+						r, MultiReplayDock::kColFirstCam);
+					auto *box = cell
+							    ? cell->findChild<
+								      QCheckBox *>()
+							    : nullptr;
+					if (box) {
+						angleCellFound = true;
+						box->setChecked(true);
+					}
+					break;
+				}
+			});
+			std::this_thread::sleep_for(
+				std::chrono::milliseconds(200));
+			bool setOff = false;
+			if (angleCellFound)
+				runOnUi([&]() {
+					QTableWidget *t = dock->findChild<
+						QTableWidget *>();
+					if (!t)
+						return;
+					for (int r = 0; r < t->rowCount(); r++) {
+						QTableWidgetItem *idIt = t->item(
+							r,
+							MultiReplayDock::kColId);
+						if (!idIt ||
+						    idIt->data(Qt::UserRole)
+								    .toInt() != evId)
+							continue;
+						QWidget *cell = t->cellWidget(
+							r,
+							MultiReplayDock::
+								kColFirstCam);
+						if (auto *box = cell
+									? cell->findChild<
+										  QCheckBox *>()
+									: nullptr) {
+							box->setChecked(false);
+							setOff = true;
+						}
+						break;
+					}
+				});
+			std::this_thread::sleep_for(
+				std::chrono::milliseconds(300));
+			ReplayEvent angleEv;
+			const bool haveAngleEv = store.get(evId, angleEv);
+			c.angleCheckboxEditsStore =
+				angleCellFound && setOff && haveAngleEv &&
+				!angleEv.angles[editedCam0].enabled;
+			obs_log(c.angleCheckboxEditsStore ? LOG_INFO : LOG_ERROR,
+				"[selftest] dock: angle %d checkbox %s, store says "
+				"enabled=%s (wanted off)",
+				editedCam0 + 1,
+				angleCellFound ? "found" : "NOT FOUND",
+				haveAngleEv
+					? (angleEv.angles[editedCam0].enabled
+						   ? "yes"
+						   : "no")
+					: "no event");
+			// Put it back ON: the checks after this one queue the event
+			// and expect its camera to play.
+			runOnUi([&]() {
+				QTableWidget *t = dock->findChild<QTableWidget *>();
+				if (!t)
+					return;
+				for (int r = 0; r < t->rowCount(); r++) {
+					QTableWidgetItem *idIt = t->item(
+						r, MultiReplayDock::kColId);
+					if (!idIt ||
+					    idIt->data(Qt::UserRole).toInt() != evId)
+						continue;
+					QWidget *cell = t->cellWidget(
+						r, MultiReplayDock::kColFirstCam);
+					if (auto *box = cell
+							       ? cell->findChild<
+									 QCheckBox *>()
+							       : nullptr)
+						box->setChecked(true);
+					break;
+				}
+			});
+			std::this_thread::sleep_for(
+				std::chrono::milliseconds(200));
+			store.setAngle(evId, editedCam0 + 1, true);
+		}
+
 	}
 
 	// Checked also that the range is servable, for the same modal reason.
@@ -1679,6 +1902,15 @@ DockChecks runDockChecks(int firstCam, int secondCam,
 					  10, QLatin1Char('0'));
 		bool barNamedClip = false;
 		double barProgress = 0.0;
+		// UX-07: WHILE THE CLIP IS UP, THE ROW ON AIR IS MARKED IN THE
+		// PROGRAM COLOUR AND NOT IN THE SELECTION'S. The poll paints the
+		// ID cell of the event it is playing red and records the cue in
+		// Qt::UserRole + 1 (dock-poll.cpp); the selection is the theme's
+		// own highlight, and the two must not be the same pixel. Read
+		// while it matters — once the clip ends the cue is withdrawn, so
+		// "look at the row afterwards" is no check at all.
+		bool onAirIdMarked = false;
+		QBrush onAirIdBrush;
 		for (int i = 0; i < 300 && chan.playing(); i++) {
 			runOnUi([&]() {
 				ClipBar *bar = dock->findChild<ClipBar *>();
@@ -1689,6 +1921,21 @@ DockChecks runDockChecks(int firstCam, int secondCam,
 					barNamedClip = true;
 				barProgress = std::max(barProgress,
 						       bar->progress());
+				QTableWidget *t =
+					dock->findChild<QTableWidget *>();
+				for (int r = 0; t && r < t->rowCount(); r++) {
+					QTableWidgetItem *it = t->item(
+						r, MultiReplayDock::kColId);
+					if (!it ||
+					    it->data(Qt::UserRole).toInt() != evId)
+						continue;
+					if (it->data(Qt::UserRole + 1).toBool()) {
+						onAirIdMarked = true;
+						onAirIdBrush =
+							it->foreground();
+					}
+					break;
+				}
 			});
 			std::this_thread::sleep_for(
 				std::chrono::milliseconds(50));
@@ -1699,6 +1946,20 @@ DockChecks runDockChecks(int firstCam, int secondCam,
 			"reached %.0f%%",
 			idText.toUtf8().constData(),
 			barNamedClip ? "yes" : "NO", barProgress * 100.0);
+
+		c.onAirIdDistinctFromSelection =
+			onAirIdMarked && onAirIdBrush.style() != Qt::NoBrush &&
+			onAirIdBrush.color() != QColor(sc().rowSel);
+		obs_log(c.onAirIdDistinctFromSelection ? LOG_INFO : LOG_ERROR,
+			"[selftest] dock: on-air row cue %s, id drawn %s "
+			"(selection is %s): %s",
+			onAirIdMarked ? "set" : "NOT SET",
+			onAirIdBrush.style() == Qt::NoBrush
+				? "in the default ink"
+				: qUtf8Printable(onAirIdBrush.color().name()),
+			qUtf8Printable(QColor(sc().rowSel).name()),
+			c.onAirIdDistinctFromSelection ? "distinct"
+						       : "NOT DISTINCT");
 
 		const auto st = chan.stats();
 		const int64_t pos = chan.positionNs();
@@ -2511,7 +2772,7 @@ DockChecks runDockChecks(int firstCam, int secondCam,
 				// By objectName rather than by class: AspectBox is a
 				// plain QWidget subclass with no Q_OBJECT, and giving
 				// it one would put a moc'd type in a header the
-				// mockup also compiles.
+				// standalone checks also compile.
 				for (QWidget *box :
 				     dock->findChildren<QWidget *>()) {
 					if (box->objectName() !=
@@ -3909,6 +4170,231 @@ DockChecks runDockChecks(int firstCam, int secondCam,
 		store.setListName(list, kept);
 	}
 
+	// --- THE PANEL AS A CONTROL: names, roles, focus, contrast ------------
+	// Four checks in one block, and they are together because none of them
+	// touches the transport: they walk the widgets the operator actually
+	// has and ask whether he could find them without seeing them (a11y),
+	// see what they are doing through the style sheet's only input (the
+	// dynamic properties), reach the position bar from the keyboard
+	// (focus), and read them on every theme the Settings dialog offers
+	// (contrast). All four run LATE — after the keyboard-layer test above —
+	// so nothing here can be blamed for a keyboard result.
+	//
+	// UX-15: a key with no words on it has to explain itself twice. The
+	// tooltip is for the pointer; the accessible name is for the screen
+	// reader, and a panel built out of drawn marks is exactly the panel
+	// where "it has an icon, so it must be fine" stops being true. Only
+	// controls ON SCREEN are enumerated: a key in a folded section, or the
+	// health badge between findings, is not there to be announced — the
+	// badge is hidden outright by design and its tooltip is written when it
+	// is shown (dock-poll.cpp). Both bars carry names of their own, because
+	// they paint rather than carry text, and a scrubber a screen reader
+	// cannot name is a scrubber that is not there.
+	{
+		bool ok = true;
+		int checked = 0;
+		QString offenders;
+		runOnUi([&]() {
+			for (QAbstractButton *b :
+			     dock->findChildren<QAbstractButton *>()) {
+				if (!b->isVisibleTo(dock))
+					continue; // hidden: not announced
+				checked++;
+				if (!b->text().trimmed().isEmpty())
+					continue;
+				const bool named =
+					!b->toolTip().trimmed().isEmpty() &&
+					!b->accessibleName().trimmed().isEmpty();
+				if (named)
+					continue;
+				ok = false;
+				offenders +=
+					(offenders.isEmpty() ? "" : ", ") +
+					(b->objectName().isEmpty()
+						 ? QStringLiteral("(unnamed)")
+						 : b->objectName());
+			}
+			if (SeekBar *bar = dock->findChild<SeekBar *>()) {
+				if (bar->accessibleName().trimmed().isEmpty()) {
+					ok = false;
+					offenders += (offenders.isEmpty()
+							      ? ""
+							      : ", ") +
+						     QStringLiteral("SeekBar");
+				}
+			}
+			if (ClipBar *bar = dock->findChild<ClipBar *>()) {
+				if (bar->accessibleName().trimmed().isEmpty()) {
+					ok = false;
+					offenders += (offenders.isEmpty()
+							      ? ""
+							      : ", ") +
+						     QStringLiteral("ClipBar");
+				}
+			}
+		});
+		c.a11yNamesOnKeys = ok && checked > 0;
+		c.a11yButtonsChecked = checked;
+		obs_log(c.a11yNamesOnKeys ? LOG_INFO : LOG_ERROR,
+			"[selftest] dock a11y: %d visible key(s) checked, "
+			"unnamed/undescribed: %s",
+			checked,
+			offenders.isEmpty() ? "none"
+					    : qUtf8Printable(offenders));
+	}
+
+	// §6/§8: THE STYLE SHEET READS STATE FROM DYNAMIC PROPERTIES, so a
+	// property that is never written is a state the panel can be in and
+	// never show. rec [recording], playPause [playing], now [live], the six
+	// speed chips [active] and the status line's [notice] are all written
+	// by poll() — each only when it CHANGES, which is why the chips are
+	// driven through every preset here: the dock lights the chip that
+	// becomes current and clears the one that was, so a chip that has never
+	// been the speed is a chip whose property is still absent. Putting each
+	// in the chair is what makes "isValid()" a claim about the dock rather
+	// than about which speeds this run happened to use. The health badge is
+	// the one exception, and the reason the rule reads "if shown": its
+	// `level` exists only while it has something to report.
+	{
+		QAbstractButton *rec = nullptr;
+		QAbstractButton *playPause = nullptr;
+		QAbstractButton *now = nullptr;
+		QAbstractButton *health = nullptr;
+		QAbstractButton *speed100 = nullptr;
+		std::vector<QAbstractButton *> chips;
+		bool noticeHasProp = false;
+		runOnUi([&]() {
+			for (QAbstractButton *b :
+			     dock->findChildren<QAbstractButton *>()) {
+				const QString id =
+					b->property(kKeyProperty).toString();
+				if (id == QLatin1String("rec"))
+					rec = b;
+				else if (id == QLatin1String("playPause"))
+					playPause = b;
+				else if (id == QLatin1String("now"))
+					now = b;
+				else if (id == QLatin1String("health"))
+					health = b;
+				else if (id == QLatin1String("speed100%"))
+					speed100 = b;
+				else if (id.startsWith(QLatin1String("speed")))
+					chips.push_back(b);
+			}
+			if (speed100)
+				chips.push_back(speed100);
+			if (QLabel *nl = dock->findChild<QLabel *>(
+				    QStringLiteral("mrChanStrip")))
+				noticeHasProp =
+					nl->property("notice").isValid();
+		});
+		// One poll tick per chip, so each really was the current speed.
+		for (QAbstractButton *chip : chips) {
+			QAbstractButton *b = chip;
+			runOnUi([&]() { b->click(); });
+			std::this_thread::sleep_for(
+				std::chrono::milliseconds(150));
+		}
+		// Back to 1x, the panel's resting speed before this block.
+		if (speed100) {
+			runOnUi([&]() { speed100->click(); });
+			std::this_thread::sleep_for(
+				std::chrono::milliseconds(200));
+		}
+		bool props = false;
+		runOnUi([&]() {
+			props = rec && rec->property("recording").isValid() &&
+				playPause &&
+				playPause->property("playing").isValid() &&
+				now && now->property("live").isValid() &&
+				!chips.empty() && noticeHasProp &&
+				(!health || !health->isVisibleTo(dock) ||
+				 health->property("level").isValid());
+			for (QAbstractButton *chip : chips)
+				props = props &&
+					chip->property("active").isValid();
+		});
+		c.semanticPropsPresent = props;
+		obs_log(props ? LOG_INFO : LOG_ERROR,
+			"[selftest] dock state properties: rec=%s playPause=%s "
+			"now=%s chips=%d notice=%s health=%s",
+			rec ? "found" : "MISSING",
+			playPause ? "found" : "MISSING",
+			now ? "found" : "MISSING", (int)chips.size(),
+			noticeHasProp ? "set" : "MISSING",
+			!health ? "MISSING"
+				: (health->isVisibleTo(dock) ? "shown" : "hidden"));
+	}
+
+	// §15.2: the position bar is reachable and the reach is VISIBLE. The
+	// policy is read first — a widget Qt will not focus never gets a ring,
+	// whatever the painter does — then the real setFocus() on the UI
+	// thread, then hasFocus() once the panel's own event loop has had its
+	// moment. Focus then goes back to the dock, which is where a click on
+	// the panel body leaves it.
+	{
+		Qt::FocusPolicy policy = Qt::NoFocus;
+		bool focused = false;
+		runOnUi([&]() {
+			SeekBar *bar = dock->findChild<SeekBar *>();
+			if (!bar)
+				return;
+			policy = bar->focusPolicy();
+			bar->setFocus(Qt::OtherFocusReason);
+			QCoreApplication::processEvents();
+			focused = bar->hasFocus();
+			dock->setFocus(Qt::OtherFocusReason);
+		});
+		c.focusRingVisible =
+			policy == Qt::StrongFocus && focused;
+		obs_log(c.focusRingVisible ? LOG_INFO : LOG_ERROR,
+			"[selftest] dock focus: SeekBar policy=%d, took focus=%s",
+			(int)policy, focused ? "yes" : "NO");
+	}
+
+	// §8.1/DD-004: THE FOUR THEMES ARE MEASURED, NOT EYEBALLED. schemeFor()
+	// is the single source the sheet itself is built from, and the focus
+	// ring's own derivation inside it targets exactly this 3.0:1 — a second
+	// formula here could pass while the panel failed. The worst number is
+	// reported beside the verdict: "contrast ok" is a threshold, and the
+	// next person to look will want to know how much room was left.
+	{
+		const ThemeChoice choices[] = {ThemeChoice::FollowObs,
+					       ThemeChoice::Broadcast,
+					       ThemeChoice::HighContrast,
+					       ThemeChoice::Light};
+		const QPalette pal = qApp->palette();
+		double worstText = 1e9;
+		double worstFocus = 1e9;
+		bool ok = true;
+		for (ThemeChoice choice : choices) {
+			const Scheme s = schemeFor(choice, pal);
+			const double textPanel =
+				contrastRatio(QColor(s.text), QColor(s.panel));
+			const double keyRaise = contrastRatio(
+				QColor(s.textKey), QColor(s.raise1));
+			const double ringRaise = contrastRatio(
+				QColor(s.focus), QColor(s.raise1));
+			const double text = std::min(textPanel, keyRaise);
+			worstText = std::min(worstText, text);
+			worstFocus = std::min(worstFocus, ringRaise);
+			const bool themeOk = text >= 4.5 && ringRaise >= 3.0;
+			ok = ok && themeOk;
+			obs_log(themeOk ? LOG_INFO : LOG_ERROR,
+				"[selftest] dock contrast theme %d: text/panel "
+				"%.2f:1, textKey/raise1 %.2f:1 (target 4.5); "
+				"focus/raise1 %.2f:1 (target 3.0)",
+				(int)choice, textPanel, keyRaise, ringRaise);
+		}
+		c.contrastOk = ok;
+		c.worstTextContrast = worstText;
+		c.worstFocusContrast = worstFocus;
+		obs_log(ok ? LOG_INFO : LOG_ERROR,
+			"[selftest] dock contrast: worst text %.2f:1, worst "
+			"focus %.2f:1 across the four themes",
+			worstText, worstFocus);
+	}
+
 	// Leave the operator's own project exactly as it was found.
 	if (evId > 0)
 		store.remove(evId);
@@ -4977,6 +5463,48 @@ void runReopenPass(const std::string &outPath)
 			availWidth, fsDoubleClickIsInert ? "yes" : "NO");
 	}
 
+	// --- the churn above left no display on a rebuilt window --------------
+	// §15.3: "OBSQTDisplay widgets remain valid after every mode
+	// transition", and §16: "No OBSQTDisplay is destroyed/recreated solely
+	// because of resize".
+	//
+	// The instrument is the counters in qt-display.cpp, and the three of
+	// them do NOT say the same thing:
+	//   stranded   a display still presenting into a dead handle — never
+	//              acceptable, this is the native window being lost;
+	//   created    how many displays have ever been made. Compared with the
+	//              number ALIVE right now, it proves none was destroyed and
+	//              rebuilt for the float/full-screen churn;
+	//   reparented a display whose top-level was rebuilt beneath it. That
+	//              number is EXPECTED to move here: OBS puts a floating dock
+	//              on a window of its own and Qt reports the parent change
+	//              under every display it carries. It is the HOST doing its
+	//              job, not this plugin calling setParent — which is the
+	//              thing the invariant forbids — so it is logged, not
+	//              asserted.
+	const int displaysReparented = OBSQTDisplay::reparentedCount();
+	const int displaysStranded = OBSQTDisplay::strandedCount();
+	const int displaysCreated = OBSQTDisplay::createdCount();
+	// Widgets, not native displays: the nine tiles and the two bays are
+	// created as widgets whether or not each one got a native display (the
+	// hidden ones never ask for one), so what is compared is every widget
+	// that IS presenting right now. createdCount is cumulative and never
+	// decremented, so if any of them had been destroyed and rebuilt through
+	// the churn it would have counted twice and the two numbers would part.
+	int displaysAlive = 0;
+	runOnUi([&]() {
+		for (OBSQTDisplay *d : dock->findChildren<OBSQTDisplay *>())
+			if (d->display())
+				displaysAlive++;
+	});
+	const bool displaysNeverReparented =
+		displaysStranded == 0 && displaysCreated == displaysAlive;
+	obs_log(displaysNeverReparented ? LOG_INFO : LOG_ERROR,
+		"[selftest] reopen: displays after the float/full-screen churn — "
+		"%d stranded, %d created, %d presenting (%d on a rebuilt top-level)",
+		displaysStranded, displaysCreated, displaysAlive,
+		displaysReparented);
+
 	const bool pass = sameBoot.ok && rebooted.ok && fsKeyHiddenWhenDocked &&
 			  fsWindowOffersMaximise && fsDoubleClickIsInert &&
 			  fsKeyShownWhenFloating && fsCoversTheScreen &&
@@ -4985,7 +5513,8 @@ void runReopenPass(const std::string &outPath)
 			  shortReachable && shortPacksLines && keysCentred &&
 			  tallCollapsesToMore && playKeyIsTall &&
 			  panelPaintsItself && panelMarksAreDrawn &&
-			  monitorsGiveRoom && eventsBackupCreated;
+			  monitorsGiveRoom && eventsBackupCreated &&
+			  displaysNeverReparented;
 
 	// --- Put everything back ----------------------------------------------
 	// The operator's project first (so nothing is pointing into the test one),
@@ -5051,6 +5580,10 @@ void runReopenPass(const std::string &outPath)
 	obs_data_set_bool(checks, "panel_paints_its_own_background",
 			  panelPaintsItself);
 	obs_data_set_bool(checks, "panel_marks_are_drawn", panelMarksAreDrawn);
+	// §15.3: the float/full-screen churn above left no native window
+	// destroyed under a display that was still presenting into it.
+	obs_data_set_bool(checks, "dock_displays_never_reparented",
+			  displaysNeverReparented);
 	obs_data_set_obj(root, "checks", checks);
 	obs_data_release(checks);
 	// Numbers, not checks: how much panel there was to centre the keys in.
@@ -6344,6 +6877,7 @@ void runSelfTest()
 			  dockChecks.stepBackMovesPlayhead &&
 			  dockChecks.reverseButtonPlaysBackwards &&
 			  dockChecks.keyboardLayerWorks &&
+			  dockChecks.focusRingVisible &&
 			  dockChecks.continuePastOutExtends &&
 			  dockChecks.pauseHoldsAndResumes &&
 			  dockChecks.speedChangeKeepsPosition &&
@@ -6378,7 +6912,10 @@ void runSelfTest()
 			  dockChecks.angleColumnsInTable &&
 			  dockChecks.tableEditsAngleSpeed &&
 			  dockChecks.searchRestoresCellValues &&
+			  dockChecks.tableCommentEditsStore &&
+			  dockChecks.angleCheckboxEditsStore &&
 			  dockChecks.clipBarReportsOnAir &&
+			  dockChecks.onAirIdDistinctFromSelection &&
 			  dockChecks.skipAdvancesQueue &&
 			  dockChecks.freeReviewPlaysUnmarked &&
 			  dockChecks.freeReviewIsSecondPlayFunction &&
@@ -6389,6 +6926,9 @@ void runSelfTest()
 			  dockChecks.manualReorderDisablesAutoSort &&
 			  dockChecks.listTabsFitTheirNames &&
 			  dockChecks.listTabCountFollowsConfig &&
+			  dockChecks.a11yNamesOnKeys &&
+			  dockChecks.semanticPropsPresent &&
+			  dockChecks.contrastOk &&
 			  dockChecks.layoutOrderTopToBottom &&
 			  dockChecks.seekbarGraduated && dockChecks.channelBIndependent &&
 			  dockChecks.setupNotNeededWhenConfigured &&
@@ -6549,6 +7089,21 @@ void runSelfTest()
 	// are what a direct call to the handler cannot see.
 	obs_data_set_bool(checks, "dock_keyboard_layer_works",
 			  dockChecks.keyboardLayerWorks);
+	// UX-15/§15.2/§8.1, the acceptance surface the redesign added: a key
+	// with no words explains itself, the position bar takes focus visibly,
+	// the style sheet's state properties exist, and every theme clears its
+	// contrast targets. `dock_a11y_buttons` is a count, not a verdict: the
+	// claim is meaningless without knowing how many controls it covered.
+	obs_data_set_bool(checks, "dock_a11y_names", dockChecks.a11yNamesOnKeys);
+	obs_data_set_int(root, "dock_a11y_buttons", dockChecks.a11yButtonsChecked);
+	obs_data_set_bool(checks, "dock_focus_ring", dockChecks.focusRingVisible);
+	obs_data_set_bool(checks, "dock_semantic_props",
+			  dockChecks.semanticPropsPresent);
+	obs_data_set_bool(checks, "dock_contrast_ok", dockChecks.contrastOk);
+	obs_data_set_double(root, "dock_worst_text_contrast",
+			    dockChecks.worstTextContrast);
+	obs_data_set_double(root, "dock_worst_focus_contrast",
+			    dockChecks.worstFocusContrast);
 	// Continuing past the OUT lengthens the LAST clip of the queue, by what the
 	// green band is counting down.
 	obs_data_set_bool(checks, "continue_past_out_extends",
@@ -6612,10 +7167,19 @@ void runSelfTest()
 			 dockChecks.searchCellPct);
 	obs_data_set_int(checks, "dock_search_stored_pct",
 			 dockChecks.searchStoredPct);
+	// UX-08: the note and the angle checkbox are the table's two one-click
+	// editors, and both were driven on the real cells.
+	obs_data_set_bool(checks, "dock_table_comment_edit",
+			  dockChecks.tableCommentEditsStore);
+	obs_data_set_bool(checks, "dock_angle_checkbox_edit",
+			  dockChecks.angleCheckboxEditsStore);
 	// M5: the green band describes the clip ON AIR, and >> takes the next
 	// item of the queue instead of killing the sequence.
 	obs_data_set_bool(checks, "dock_clip_bar_reports_on_air",
 			  dockChecks.clipBarReportsOnAir);
+	// UX-07: the row on air wears the Program cue, never the selection.
+	obs_data_set_bool(checks, "dock_on_air_id_distinct",
+			  dockChecks.onAirIdDistinctFromSelection);
 	obs_data_set_bool(checks, "dock_skip_advances_queue",
 			  dockChecks.skipAdvancesQueue);
 	// v1.4: footage nobody marked can be watched, and only Play events can
