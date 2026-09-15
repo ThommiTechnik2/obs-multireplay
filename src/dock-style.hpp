@@ -1,8 +1,9 @@
 // dock-style.hpp — the panel's colours and its style sheet, in one place.
 //
-// It lives in a header of its own so that the DOCK and the LAYOUT MOCKUP are
-// styled by the same bytes. A mockup with its own copy of the sheet measures a
-// panel that does not exist: every height rule here (see the 28 px arithmetic
+// It lives in a header of its own so that the DOCK and the LAYOUT CHECKS are
+// styled by the same bytes. A second renderer with its own copy of the sheet
+// measures a panel that does not exist: every height rule here (see the
+// 28 px arithmetic
 // below) is part of the layout, not decoration, and a second copy would drift
 // from this one the first time a padding changed.
 //
@@ -48,6 +49,9 @@
 #include <QColor>
 #include <QPalette>
 #include <QString>
+#include <QtGlobal>
+
+#include <cmath>
 
 namespace multireplay {
 
@@ -96,6 +100,12 @@ struct Scheme {
 	QString textDim;    // disabled, and an empty slot
 	QString accent;     // the theme's highlight: selection, current tab
 	QString accentText;
+	// The keyboard focus ring. Derived FROM the accent but pushed away from
+	// the key surface until it clears the 3:1 the spec asks of a focus
+	// indicator: a theme's highlight can sit almost on top of a near-black
+	// key (Broadcast's navy measured 1.6:1) and a focus cue nobody can see
+	// is not a cue. Selection colours are untouched.
+	QString focus;
 	QString rowSel;     // the selected event row
 	QString rowSelText;
 
@@ -111,6 +121,11 @@ struct Scheme {
 	QString danger;     // Annulla, and the health badge at its worst
 	QString action;     // THE ONE FILLED KEY: "Riproduci eventi"
 	QString actionHi;
+	// The ink ON those filled surfaces — REC armed, the on-air band, the
+	// action key, a tally caption. White by design on every theme: a theme
+	// must not tint the word on the key that is telling the gallery the take
+	// is running, and a signal fill is picked so that white stands off it.
+	QString onSignalText;
 
 	// two structural colours that are neither chrome nor signal
 	QString tabBar;     // the list tabs' selected fill
@@ -169,6 +184,33 @@ inline QColor signalOn(const QColor &hue, const QColor &bg, bool dark,
 
 } // namespace detail
 
+// WCAG 2.x relative-luminance contrast ratio between two opaque colours.
+// 1.0 = identical, 21.0 = black on white. The spec's targets: 4.5:1 for
+// primary text on its surface, 3.0:1 for large/bold text and focus rings.
+//
+// It lives here, in the header, because the self-test has to answer "does this
+// theme meet those targets" against the same arithmetic the sheet was built
+// from: a second copy inside the test could pass while the panel failed. No
+// colour is adjusted here — it only measures, and it clamps, so a colour built
+// from extended sRGB components still yields a ratio a report can act on.
+inline double contrastRatio(const QColor &a, const QColor &b)
+{
+	const auto luminance = [](const QColor &c) {
+		const auto channel = [](double v) {
+			v = qBound(0.0, v, 1.0);
+			if (v <= 0.03928)
+				return v / 12.92;
+			return std::pow((v + 0.055) / 1.055, 2.4);
+		};
+		return 0.2126 * channel(c.redF()) +
+		       0.7152 * channel(c.greenF()) +
+		       0.0722 * channel(c.blueF());
+	};
+	const double la = luminance(a);
+	const double lb = luminance(b);
+	return (qMax(la, lb) + 0.05) / (qMin(la, lb) + 0.05);
+}
+
 // The scheme the panel should wear, given what the operator asked for and what
 // OBS is currently themed with.
 //
@@ -180,7 +222,7 @@ inline QColor signalOn(const QColor &hue, const QColor &bg, bool dark,
 // they live in two places, and a third-party theme is arbitrary.
 //
 // THERE IS NO `dark` PARAMETER, deliberately. There was, fed from
-// obs_frontend_is_theme_dark(), and the mockup passed the wrong one on its very
+// obs_frontend_is_theme_dark(), and a second renderer passed the wrong one on its very
 // first run: the whole signal scale inverted and "Riproduci eventi" came out
 // BLACK on a dark panel. Whether a background is dark is not something a caller
 // should be trusted to assert when it is sitting right there in the colour. It
@@ -251,6 +293,16 @@ inline Scheme schemeFor(ThemeChoice choice, const QPalette &pal)
 	s.textDim = hex(mix(bg, fg, 0.26));
 	s.accent = hex(hl);
 	s.accentText = hex(hlText);
+	{
+		QColor ring = hl;
+		for (int i = 0; i < 20 &&
+				contrastRatio(ring, QColor(s.raise1)) < 3.0;
+		     i++)
+			ring = mix(ring, dark ? QColor(Qt::white)
+					      : QColor(Qt::black),
+				   0.10);
+		s.focus = hex(ring);
+	}
 	s.tabBar = hex(hl);
 
 	// SIGNAL. Fixed hues; only their lightness is answerable to the theme.
@@ -309,6 +361,9 @@ inline Scheme schemeFor(ThemeChoice choice, const QPalette &pal)
 	s.danger = hex(rec);
 	s.action = hex(act);
 	s.actionHi = hex(mix(act, QColor(Qt::white), 0.18));
+	// See the field: the ink on a filled signal surface is not derived and
+	// does not move with the theme. One assignment covers all four.
+	s.onSignalText = "#ffffff";
 	s.seekBar = hex(mix(hl, fg, 0.10));
 
 	// The selected row. In Broadcast it is the reference controller's orange,
@@ -331,11 +386,11 @@ inline Scheme schemeFor(ThemeChoice choice, const QPalette &pal)
 // stylesheet is read far more often than it is edited, and forty positional
 // arguments is a file nobody can check by eye.
 //
-// SPLIT INTO TWO LITERALS, and it is the compiler's rule rather than a section
-// boundary: MSVC refuses a single string literal over 16380 bytes (C2026,
-// "trailing characters will be truncated" — a stylesheet silently missing its
-// second half). Adjacent literals are concatenated at translation, so the sheet
-// is still one string; it just arrives in two pieces.
+// SPLIT INTO SEVERAL LITERALS, and it is the compiler's rule rather than a
+// section boundary: MSVC refuses a single string literal over 16380 bytes
+// (C2026, "trailing characters will be truncated" — a stylesheet silently
+// missing its tail). Adjacent literals are concatenated at translation, so the
+// sheet is still one string; it just arrives in pieces.
 inline const char *const kDockStyleTemplate =
 R"QSS(
 /* ── base ─────────────────────────────────────────────── */
@@ -383,6 +438,12 @@ R"QSS(
 	padding: 4px 18px; border: 1px solid transparent;
 }
 #MultiReplayDock QMenu::item:selected {
+	background: @rowSel@; color: @rowSelText@;
+}
+/* THE ARROW KEYS WEAR THE POINTER'S FILL. Qt marks the row the keyboard is on
+   :focus; without a rule of its own a menu driven from the arrows had no
+   visible current row — the mouse moved something, the keyboard nothing. */
+#MultiReplayDock QMenu::item:focus {
 	background: @rowSel@; color: @rowSelText@;
 }
 /* A DISABLED MENU ROW IS DIMMER, NOT ABSENT — and it is dimmed to @textMuted@
@@ -449,6 +510,13 @@ QLabel#mrClock[rec="true"] { color: @rec@; font-weight: 700; }
 #MultiReplayDock QPushButton:hover  { background: @raise2@; border-color: @borderHi@; color: @text@; }
 #MultiReplayDock QPushButton:pressed { background: @sink1@; }
 #MultiReplayDock QPushButton:disabled { color: @textDim@; border-color: @raise1@; }
+/* A LATCHED KEY THAT CANNOT BE ANSWERED STOPS LOOKING LIVE. The role's own
+   :checked rule (mrLive, mrToggle, mrStatKey, mrAngle) scores the same as the
+   disabled line above and comes later, so a key disabled by the state it is in
+   kept its full signal fill — the loudest thing on a panel that had locked. */
+#MultiReplayDock QPushButton:checked:disabled {
+	background: @raise1@; color: @textDim@; border-color: @raise1@;
+}
 
 /* ── transport step / icon buttons ────────────────────── */
 QPushButton#mrTransport {
@@ -465,10 +533,10 @@ QPushButton#mrTransport:hover { background: @raise2@; border-color: @borderHi@; 
    Hence its own role, with the height it can actually have. */
 QPushButton#mrSkip {
 	background: @onAirDim@; border: 1px solid @onAir@; border-radius: 4px;
-	color: #ffffff; font-size: 11px; font-weight: 700;
+	color: @onSignalText@; font-size: 11px; font-weight: 700;
 	min-width: 30px; min-height: 0px; padding: 0px 4px;
 }
-QPushButton#mrSkip:hover { background: @onAir@; color: #ffffff; }
+QPushButton#mrSkip:hover { background: @onAir@; color: @onSignalText@; }
 
 /* play/pause — a COMMAND at rest, a STATE while it runs */
 QPushButton#mrPlay {
@@ -497,15 +565,17 @@ QPushButton#mrLive {
 	background: @raise1@; color: @textKey@;
 	border: 1px solid @border@; border-radius: 3px;
 	font-weight: 700; font-size: 11px; letter-spacing: 0.6px;
-	/* min-width is the ICON-ONLY floor, not the labelled one: in a column
-	   these two lose their words and keep their marks (see
-	   applyCompactChrome), and a 54 px floor stated here would have kept the
-	   width the word needed long after the word was gone. */
+	/* min-width is the MARK's floor, not the label's. The words do not go
+	   away: Live and Monitors keep theirs in the toolbar in every mode, and
+	   the only things on that row that give ground are the search field's
+	   width and the project label. The key's width therefore comes from its
+	   own text; 22 px only keeps the mark out of a key narrower than itself,
+	   whatever the font scale does to the word beside it. */
 	min-height: 20px; /* + 2px padding + 2px border = 26 */ min-width: 22px; padding: 2px 10px;
 }
 QPushButton#mrLive:hover { border-color: @borderHi@; color: @text@; }
 QPushButton#mrLive:checked {
-	background: @rec@; color: #ffffff; border-color: @rec@;
+	background: @rec@; color: @onSignalText@; border-color: @rec@;
 }
 
 /* ── latching toggles (Loop · music · to output) = STATE ────
@@ -540,6 +610,17 @@ QTabBar#mrListTabs::tab:hover { background: @raise2@; color: @text@; }
 QTabBar#mrListTabs::tab:selected {
 	background: @tabBar@; color: @accentText@; border-color: @tabBar@;
 }
+/* THE CURRENT TAB UNDER THE POINTER. :hover and :selected score the same, so
+   which fill a selected-and-hovered tab wore was decided by the order the two
+   rules happen to be typed in; stating the pair makes it a decision rather
+   than an accident of where a rule was inserted. */
+QTabBar#mrListTabs::tab:selected:hover {
+	background: @tabBar@; color: @accentText@; border-color: @tabBar@;
+}
+/* A tab that cannot be picked still says which list it names. */
+QTabBar#mrListTabs::tab:disabled {
+	background: @raise1@; color: @textDim@; border-color: @border@;
+}
 
 )QSS"
 /* MSVC caps a single string literal at 16380 bytes and truncates SILENTLY past
@@ -565,6 +646,18 @@ QLabel#mrSettingsTitle {
 	color: @text@; font-size: 14px; font-weight: 700;
 }
 QLabel#mrSettingsBlurb { color: @textMuted@; font-size: 10px; }
+/* Validation lives under the field it is about, not in a box the operator has
+   to dismiss: one line, in the danger hue, saying what the field needs. */
+QLabel#mrFieldError { color: @danger@; font-size: 10px; }
+/* A GROUP CAPTION INSIDE A SETTINGS PAGE. The dock's #mrSectionLabel sits on a
+   screen where the next block is always in view; on a page that scrolls the
+   caption needs air above it or it reads as the first row of the group below.
+   The text must arrive uppercased: Qt has no text-transform (the Live key is
+   uppercased in code for the same reason). */
+QLabel#mrSettingsSection {
+	color: @textMuted@; font-size: 9px; font-weight: 700;
+	letter-spacing: 1.2px; margin-top: 12px;
+}
 
 /* The two numbers an operator opens Settings to read before kick-off: how much
    disk is left, and how much recording that is. A card each — as one line of
@@ -598,13 +691,13 @@ QLabel#mrTileCap {
 	background: @raise1@; color: @textMuted@;
 	font-size: 9px; font-weight: 700; padding: 0px 4px;
 }
-QLabel#mrTileCap[tally="pvw"] { background: @pvw@; color: #ffffff; }
-QLabel#mrTileCap[tally="pgm"] { background: @rec@; color: #ffffff; }
+QLabel#mrTileCap[tally="pvw"] { background: @pvw@; color: @onSignalText@; }
+QLabel#mrTileCap[tally="pgm"] { background: @rec@; color: @onSignalText@; }
 QLabel#mrTileCap[tally="replay"] { background: @warnBg@; color: @warn@; }
 
 /* ── channel strip under the preview ─────────────────────── */
 QLabel#mrChanBadge {
-	background: @onAirDim@; color: #ffffff;
+	background: @onAirDim@; color: @onSignalText@;
 	font-weight: 700; font-size: 11px; padding: 2px 7px;
 }
 /* The letter under each output box: A on a green bar, B on a blue one, and that
@@ -620,7 +713,7 @@ QLabel#mrChanTag {
 	background: @raise1@; color: @textMuted@;
 	font-weight: 700; font-size: 9px; padding: 0px 0px;
 }
-QLabel#mrChanTag[chan="A"][active="true"] { background: @onAirDim@; color: #ffffff; }
+QLabel#mrChanTag[chan="A"][active="true"] { background: @onAirDim@; color: @onSignalText@; }
 QLabel#mrChanTag[chan="B"][active="true"] { background: @accent@; color: @accentText@; }
 /* ONE LINE, not three. It used to stack list / clip / remaining, then id and
    the two offsets, then timecode and speed — 44 px under the pictures, most of
@@ -706,7 +799,7 @@ QPushButton#mrRec[recording="false"] {
 }
 QPushButton#mrRec[recording="false"]:hover { background: @recBg@; border-color: @rec@; }
 QPushButton#mrRec[recording="true"] {
-	background: @rec@; color: #ffffff; border: 1px solid @rec@;
+	background: @rec@; color: @onSignalText@; border: 1px solid @rec@;
 }
 QPushButton#mrRec[recording="true"]:hover { background: @rec@; }
 
@@ -753,6 +846,9 @@ QToolButton#mrGear {
 	padding: 3px 7px; color: @textKey@; font-size: 14px;
 }
 QToolButton#mrGear:hover { background: @raise2@; color: @text@; border-color: @borderHi@; }
+QToolButton#mrGear:focus {
+	background: @raise2@; color: @text@; border-color: @accent@;
+}
 
 /* ── angle selector — STATE drives colour, not :checked ───── */
 QPushButton#mrAngle {
@@ -803,7 +899,7 @@ QWidget#mrSepLine { background: @border@; }
    when armed and the on-air band. An action and a state look different here on
    purpose: this one asks to be pressed, those two report. */
 QPushButton#mrAccent {
-	background: @action@; border: 1px solid @action@; color: #ffffff;
+	background: @action@; border: 1px solid @action@; color: @onSignalText@;
 	font-weight: 700;
 }
 QPushButton#mrAccent:hover { background: @actionHi@; border-color: @actionHi@; }
@@ -824,6 +920,23 @@ QPushButton#mrDanger:hover { background: @recBg@; border-color: @danger@; color:
 	border: 1px solid @border@; background: @raise1@;
 }
 #MultiReplayDock QCheckBox::indicator:checked { background: @pvw@; border-color: @pvw@; }
+/* A DISABLED BOX IS SUNK rather than only labelled as disabled. The label is
+   dimmed by the shared :disabled rule further down; this is the box itself. */
+#MultiReplayDock QCheckBox::indicator:disabled {
+	background: @panel@; border-color: @raise2@;
+}
+/* A DISABLED BOX THAT IS STILL TICKED KEEPS ITS FILL. The tick is a white file
+   (dock-assets.hpp) with no dimmed sibling: on a muted box it would vanish on
+   the light theme, which reads as "off" — the one thing a disabled control
+   must not misreport. The state outranks the dimming. */
+#MultiReplayDock QCheckBox::indicator:checked:disabled {
+	background: @pvw@; border-color: @pvw@;
+}
+/* The focus ring is on the BOX: :focus on the widget itself would draw a
+   border a QCheckBox does not have. NOTE `::indicator` before `:focus` — Qt
+   reads a subcontrol only as the FIRST pseudo of a selector, so the natural
+   `QCheckBox:focus::indicator` would parse and then never match the box. */
+#MultiReplayDock QCheckBox::indicator:focus { border-color: @accent@; }
 
 )QSS"
 R"QSS(
@@ -848,6 +961,12 @@ R"QSS(
 	image: url("@arrowDown@"); width: 9px; height: 6px; border: 0;
 	margin-right: 5px;
 }
+/* A SELECTOR THAT CANNOT BE OPENED LOSES ITS ARROW. The mark is a file in a
+   fixed ink (dock-assets.hpp) with no dimmed sibling, so leaving it would
+   leave the one full-ink thing on a disabled field. `image: none` removes the
+   image only — the width, the height and the margin are the rule above, so no
+   box moves by a pixel. */
+#MultiReplayDock QComboBox::down-arrow:disabled { image: none; }
 /* AN EDITABLE COMBO IS A COMBO WITH A LINE EDIT INSIDE IT, and the rule above
    matches BOTH. So the per-angle speed and tag cells were paying for the box
    twice: the combo's own 3px/7px padding, its border and its min-height, and
@@ -1009,6 +1128,12 @@ QLabel#mrZoneTitle[folded="true"] {
 	font-size: 8px; letter-spacing: 0.8px;
 }
 
+)QSS"
+/* Another break for the same reason, and this one was added when the state
+   work landed: the literal above had reached 15117 bytes, one long comment
+   short of the 16380 MSVC silently truncates at, and the slider, the table
+   and the scrollbars have to live somewhere. Still one string. */
+R"QSS(
 /* ── speed slider ────────────────────────────────────────── */
 QSlider#mrSpeed::groove:horizontal {
 	height: 3px; background: @raise2@; border-radius: 2px;
@@ -1019,6 +1144,16 @@ QSlider#mrSpeed::handle:horizontal {
 	background: @text@; border-radius: 5px; border: 1px solid @border@;
 }
 QSlider#mrSpeed::handle:horizontal:hover { background: @accentText@; }
+/* The ring sits on the HANDLE, which is where the eye already is while the
+   speed is driven from the keyboard. Subcontrol first, state second: see the
+   note on the checkbox ring for why the natural-looking order is dead. */
+QSlider#mrSpeed::handle:horizontal:focus { border-color: @accent@; }
+/* A SLIDER WITH NOTHING TO SET is drawn, not hidden: the speed column keeps
+   its height, and the handle is what says "this cannot move". */
+QSlider#mrSpeed::groove:horizontal:disabled { background: @raise1@; }
+QSlider#mrSpeed::handle:horizontal:disabled {
+	background: @textDim@; border-color: @border@;
+}
 
 /* ── event table ───────────────────────────────────────────── */
 QTableWidget#mrEvents {
@@ -1026,6 +1161,11 @@ QTableWidget#mrEvents {
 	gridline-color: transparent; border: 1px solid @border@;
 	border-radius: 0; color: @text@; outline: 0;
 }
+/* FOCUS IS A COLOUR, NOT A FRAME. The table takes TAB focus and the arrows
+   step rows, so it has to show that it has it; the frame is already 1 px, so
+   changing its colour moves nothing — no row, no column, no scrollbar. The
+   outline stays off: it would draw over the grid instead of under it. */
+QTableWidget#mrEvents:focus { border-color: @accent@; }
 QTableWidget#mrEvents::item { padding: 2px 5px; border: 0; }
 QTableWidget#mrEvents::item:selected { background: @rowSel@; color: @rowSelText@; }
 /* The per-angle enable box, which in the reference controller IS the cell */
@@ -1094,7 +1234,7 @@ QTableWidget#mrEvents::indicator:checked {
    is a dark patch in a white panel — a spin box in Settings, the pane behind a
    tab, the well of a list.
 
-   THE MOCKUP USED TO BE BLIND TO THIS, and that is why it kept passing while
+   A SECOND RENDERER USED TO BE BLIND TO THIS, and that is why it kept passing while
    the panel kept being reported. It had no application style sheet at all, so
    every widget kind we had forgotten rendered correctly in it and always had —
    the same class of omission as the sections it simply does not build. It now
@@ -1265,6 +1405,25 @@ QTableWidget#mrEvents::indicator:checked {
 #MultiReplayDock QLineEdit:focus, #MultiReplayDock QComboBox:focus {
 	border-color: @accent@;
 }
+/* ...AND THE RING ITSELF, ON @focus@ RATHER THAN @accent@.
+   The rules above (and the table/checkbox/slider ones earlier in the sheet)
+   say `accent`, which is the right HUE and the wrong CONTRAST on a preset
+   whose highlight sits close to the key surface: Broadcast's navy measured
+   1.6:1 against a raised key, and a focus cue nobody can see is not a cue.
+   @focus@ is the same hue pushed away from the surface until it clears the
+   3:1 the spec asks. Same selectors, later in the sheet, so it wins without
+   touching any selection colour. */
+#MultiReplayDock QAbstractButton:focus,
+QToolButton#mrGear:focus,
+#MultiReplayDock QCheckBox::indicator:focus,
+QTableWidget#mrEvents:focus,
+QTableWidget#mrEvents QComboBox:focus,
+QTableWidget#mrEvents QLineEdit:focus,
+#MultiReplayDock QSpinBox:focus, #MultiReplayDock QDoubleSpinBox:focus,
+#MultiReplayDock QPlainTextEdit:focus, #MultiReplayDock QTextEdit:focus,
+QSlider#mrSpeed::handle:horizontal:focus {
+	border-color: @focus@;
+}
 )QSS";
 
 // How tight the event list is drawn. Three steps rather than a free number:
@@ -1350,6 +1509,7 @@ inline QString dockStyle(const Scheme &s, int densityLevel = 0,
 		{"@textKey@", &s.textKey},
 		{"@text@", &s.text},           {"@accentText@", &s.accentText},
 		{"@accent@", &s.accent},       {"@rowSelText@", &s.rowSelText},
+	{"@focus@", &s.focus},
 		{"@rowSel@", &s.rowSel},       {"@recBg@", &s.recBg},
 		{"@rec@", &s.rec},             {"@pvwBg@", &s.pvwBg},
 		{"@pvw@", &s.pvw},             {"@onAirDim@", &s.onAirDim},
@@ -1357,6 +1517,7 @@ inline QString dockStyle(const Scheme &s, int densityLevel = 0,
 		{"@warn@", &s.warn},           {"@danger@", &s.danger},
 		{"@actionHi@", &s.actionHi},   {"@action@", &s.action},
 		{"@tabBar@", &s.tabBar},       {"@seekBar@", &s.seekBar},
+		{"@onSignalText@", &s.onSignalText},
 	};
 	// LONGEST PREFIX FIRST, which is why @borderHi@ is listed above @border@
 	// and @text@ below @textMuted@: these are delimited by @ at both ends, so

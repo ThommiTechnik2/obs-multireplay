@@ -29,7 +29,7 @@
 //     and still a working panel.
 //
 // Pure Qt, no OBS and no FFmpeg, like dock-style and dock-layout: the dock
-// hands it obs_module_config_path(), the mockup hands it a temp directory, and
+// hands it obs_module_config_path(), a second renderer hands it a temp directory, and
 // both are drawing the same marks.
 #pragma once
 
@@ -87,12 +87,13 @@ inline SheetAssetPaths writeSheetAssets(const QString &dir, const Scheme &s)
 	const QString key = QString(s.textKey).mid(1);
 	const QColor ink(s.textKey);
 
-	// A TICK, white, because it is only ever drawn on the signal-green fill
-	// that a ticked indicator carries. Two strokes, round caps, the same
-	// weight as the marks on the keys.
+	// A TICK, in the scheme's on-signal ink, because it is only ever drawn on
+	// the signal-green fill that a ticked indicator carries. Two strokes,
+	// round caps, the same weight as the marks on the keys.
+	const QColor onInk(s.onSignalText);
 	const QString tick = QDir(dir).filePath(QStringLiteral("mr-tick.png"));
-	if (detail::saveMark(tick, 11, 11, [](QPainter &p, QSizeF sz) {
-		    QPen pen(Qt::white);
+	if (detail::saveMark(tick, 11, 11, [onInk](QPainter &p, QSizeF sz) {
+		    QPen pen(onInk);
 		    pen.setWidthF(1.7);
 		    pen.setCapStyle(Qt::RoundCap);
 		    pen.setJoinStyle(Qt::RoundJoin);
