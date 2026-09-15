@@ -35,6 +35,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 #include <QGridLayout>
 #include <QSplitter>
 #include <QFontInfo>
+#include <QFontMetrics>
 #include <QSplitterHandle>
 #include <QAbstractButton>
 #include <QDateTime>
@@ -500,8 +501,13 @@ void SeekBar::paintEvent(QPaintEvent *)
 			f.setBold(true);
 			p.setFont(f);
 			p.setPen(QColor(sc().textMuted));
+			// IN A COLUMN THE SENTENCE DOES NOT FIT, and one cut at
+			// "temp" is worse than one that says "…": elide it to the
+			// space there is. The full wording is on the tooltip.
+			const QString hint = QFontMetrics(f).elidedText(
+				emptyHint_, Qt::ElideRight, qMax(0, w - 12));
 			p.drawText(QRect(m + 6, y, w - 12, h + kSeekRulerH),
-				   Qt::AlignCenter, emptyHint_);
+				   Qt::AlignCenter, hint);
 		}
 		drawFocusRing();
 		return;
@@ -1525,9 +1531,33 @@ void MultiReplayDock::applyPanelMode(PanelMode m, bool force)
 	if (search_) {
 		const int em =
 			search_->fontMetrics().horizontalAdvance(QLatin1Char('M'));
-		search_->setMinimumWidth(m == PanelMode::Tall ? qMax(40, 4 * em)
+		search_->setMinimumWidth(m == PanelMode::Tall ? qMax(64, 6 * em)
 							       : qMax(80, 7 * em));
 	}
+
+	// A COLUMN SHRINKS THE WORDS, NOT THE MARKS. At 316 px the toolbar fits
+	// six controls and one word, and the word it was keeping was half of it:
+	// "LIV" and "Moni…" on screen, which is worse than no word at all. In a
+	// column the two mode keys go icon-only — the tooltip and the accessible
+	// name were set at construction and do not depend on the text — and the
+	// search box, the only control that can give width back, gets the room
+	// instead. The project label is the one item §7.3 allows to go, and
+	// poll() hides it in Tall. This is the "applyCompactChrome" the style
+	// sheet's 22 px icon-only floor has been talking about since before the
+	// function existed: it had been lost, and the keys were being squeezed
+	// instead of let go.
+	const bool tallNow = m == PanelMode::Tall;
+	if (liveBtn_)
+		liveBtn_->setText(tallNow
+					  ? QString()
+					  : QString::fromUtf8(
+						    obs_module_text("Dock.LiveMode"))
+						    .toUpper());
+	if (monitorsBtn_)
+		monitorsBtn_->setText(
+			tallNow ? QString()
+				: QString::fromUtf8(
+					  obs_module_text("Dock.Monitors")));
 
 	// OUT COLUMN: the one column of the table that is inferable. IN and
 	// DURATA together say where the clip is and how long it runs, so OUT is

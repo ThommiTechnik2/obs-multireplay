@@ -565,12 +565,13 @@ QPushButton#mrLive {
 	background: @raise1@; color: @textKey@;
 	border: 1px solid @border@; border-radius: 3px;
 	font-weight: 700; font-size: 11px; letter-spacing: 0.6px;
-	/* min-width is the MARK's floor, not the label's. The words do not go
-	   away: Live and Monitors keep theirs in the toolbar in every mode, and
-	   the only things on that row that give ground are the search field's
-	   width and the project label. The key's width therefore comes from its
-	   own text; 22 px only keeps the mark out of a key narrower than itself,
-	   whatever the font scale does to the word beside it. */
+	/* min-width is the MARK's floor, not the label's. In a column the words
+	   DO go — applyPanelMode drops them in Tall, where six controls and a
+	   project name do not fit and a half-drawn word ("LIV") is worse than
+	   none — so the key's width cannot be asserted here at all; 22 px only
+	   keeps the mark out of a key narrower than itself, whatever the font
+	   scale does to the word beside it. In the wide arrangements the width
+	   comes from the key's own text. */
 	min-height: 20px; /* + 2px padding + 2px border = 26 */ min-width: 22px; padding: 2px 10px;
 }
 QPushButton#mrLive:hover { border-color: @borderHi@; color: @text@; }

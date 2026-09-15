@@ -1319,7 +1319,14 @@ void MultiReplayDock::poll()
 						: QString(obs_module_text("Dock.ProjectHint"))
 							  .arg(name));
 			}
-			if (proj.empty()) {
+			// Tall is allowed to drop the label (§7.3: it is the one
+			// toolbar item that may go), and the row needs the width:
+			// with Live and Monitors in icon-only form there is room
+			// for the search box and the marks, not for a project name
+			// clipped to "[MRSel…".
+			const bool showLabel =
+				!proj.empty() && panelMode_ != PanelMode::Tall;
+			if (!showLabel) {
 				if (!projectLbl_->isHidden())
 					projectLbl_->hide();
 			} else if (projectLbl_->isHidden()) {
