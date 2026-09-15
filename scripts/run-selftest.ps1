@@ -179,7 +179,7 @@ function Restore-OperatorEnvironment {
     if (Test-Path $testCollectionFile) { Remove-Item $testCollectionFile -Force -ErrorAction SilentlyContinue }
     # The footage this run wrote goes with it: a gate that leaves gigabytes
     # behind is a gate nobody runs twice.
-    if (Test-Path $testSessionFolder) { Remove-Item $testSessionFolder -Recurse -Force -ErrorAction SilentlyContinue }
+    if ($testSessionFolder -and (Test-Path $testSessionFolder)) { Remove-Item $testSessionFolder -Recurse -Force -ErrorAction SilentlyContinue }
     if (Test-Path $pluginCfg) { Remove-Item $pluginCfg -Force -ErrorAction SilentlyContinue }
     if (Test-Path $cfgBackup) { Move-Item $cfgBackup $pluginCfg -Force -ErrorAction SilentlyContinue }
     if (Test-Path $iniBackup) {
