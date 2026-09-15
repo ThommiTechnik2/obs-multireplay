@@ -5,7 +5,7 @@
 // would not shrink when it had to, a section that fitted at one size and fell
 // apart at another — and none of them are visible from the code that builds the
 // keys. They are visible when you resize the thing. So the arrangement lives
-// here, free of libobs, and a mockup (tools/dock-mockup) drives the SAME code
+// here, free of libobs, and the standalone layout checks drive the SAME code
 // through every size in a second, instead of a four-minute run of OBS per look.
 //
 // THE MODEL, in three ideas:
@@ -29,6 +29,8 @@
 //     Spare WIDTH goes to the one section per line that says it wants it, so the
 //     strip ends flush instead of trailing off into dead space.
 #pragma once
+
+#include "dock-metrics.hpp"
 
 #include <QBoxLayout>
 #include <QLayout>
@@ -141,77 +143,6 @@ inline const char *kPinnedHeightProperty = "mrPinnedH";
 // idempotent: a key with no stamp is left alone.
 void repinKeys(QWidget *root);
 
-// ---------------------------------------------------------------------------
-// HOW TALL THE MONITORING ROW MAY BE — ONE COPY OF IT
-// ---------------------------------------------------------------------------
-//
-// It was two: the panel had one and the mockup had another, and they had drifted
-// apart in a way that mattered — the mockup honoured the divider the operator
-// had dragged between the pictures and the list, and the panel did not. At the
-// same size and on the same rig the two produced 357 px cameras and 237 px
-// cameras. The mockup is what every layout decision is judged on, so the panel
-// was being judged against a panel that did not exist.
-//
-// IT MUST NOT BE READ OFF THE ROW ITSELF. The row's height is DERIVED from the
-// arrangement this number chooses, so feeding it back makes a pass decide from
-// whatever the widget happened to be mid-settle — measured once at 100 px, which
-// picked an arrangement of 78 px stamps. What the splitter is willing to give
-// depends on the panel and a constant, so it is the same answer on every pass.
-//
-// ...BUT ONCE THE OPERATOR HAS MOVED THE DIVIDER, that IS the answer, and it is
-// stable for the same reason: it has stopped being derived from anything.
-struct MonitorRoom {
-	int panelH;    // the whole panel
-	int splitterH; // the body splitter: pictures + list
-	int leftColH;  // what the picture side actually has
-	int controlsH; // the keys, when they are in that column (Short)
-	int listFloor; // how much list is kept whatever the pictures ask for
-	bool bodyChosen; // has the operator dragged the pictures/list divider
-	bool wide;       // the half-the-panel cap applies only to the wide shape
-};
-
-inline int monitorRoomFor(const MonitorRoom &m)
-{
-	if (m.bodyChosen && m.leftColH > 0)
-		return std::max(40, m.leftColH - m.controlsH);
-	int room = m.splitterH - m.listFloor - m.controlsH;
-	// ...AND THE PICTURES MAY NOT HAVE MORE THAN HALF THE PANEL. Past that
-	// the list stops being a list. The cap belongs HERE, with the rest of the
-	// answer, because the tile arithmetic asks the same question and the two
-	// answers have to be one — they were two, and the cameras came out sized
-	// for a block a third taller than the one they were given.
-	if (m.wide)
-		room = std::min(room, m.panelH / 2);
-	return std::max(40, room);
-}
-
-// ---------------------------------------------------------------------------
-// SHORT'S OTHER DIVIDER — the one nobody was minding
-// ---------------------------------------------------------------------------
-//
-// `monitorRoomFor` above exists because a HEIGHT split had two copies that
-// drifted. This is the same lesson on the other axis: in Short the body
-// splitter divides WIDTH, not height, and until this function existed NOTHING
-// gave that divider an opinion — the height-management in applyPreviewSplit
-// explicitly hands Short back with "a height means nothing here" and stops,
-// leaving a QSplitter with only its stretch factors (3:2) to go on. Content
-// changes on the LEFT side (a section gaining a row, a rank moving a block
-// onto a different packed line) can shift where that stretch-driven default
-// converges even though nothing on the right changed at all — measured: a
-// height-only edit to the key strip moved this divider 28 px, enough to push
-// "Live" in the toolbar down to its CSS floor (44 px) instead of its own
-// word's width (85), rendering it clipped rather than merely tight.
-//
-// So this divider gets the same treatment as the height one: left alone once
-// the operator has dragged it (that check happens at the call site, same as
-// bodyChosen/splitChosen elsewhere), it otherwise guarantees the RIGHT pane
-// (the toolbar + event list) its own preferred width before the left column
-// gets whatever is left — floored at the left column's own minimum, since
-// giving away more than exists is not "guaranteeing" anything.
-inline int shortSplitLeftWidth(int totalW, int leftMinW, int rightWantW)
-{
-	return std::max(leftMinW, totalW - rightWantW);
-}
 // A SECTION'S CAPTION, and it has two heights because it is worth two different
 // amounts. Side by side, a caption is how the eye tells six groups apart at a
 // glance and it is cheap — one line across the whole strip. STACKED, there is
@@ -235,59 +166,6 @@ inline constexpr int kZoneGapMax = 56;
 // than this (the camera matrix, eight slots wide) shrink their keys instead.
 inline constexpr int kMinBlockWidth = 220;
 
-// ---------------------------------------------------------------------------
-// PanelMode — THREE DECLARED ARRANGEMENTS OF THE WHOLE PANEL
-// ---------------------------------------------------------------------------
-//
-// The same argument as the two shapes of a KeyBlock, one floor up. A replay
-// panel is not read, it is used from memory: the hand goes where the key was
-// last time. A fluid layout is a panel with a different memory at every width,
-// so the answer is not reflow — it is a small number of arrangements, each one
-// designed, chosen by the shape of the room the panel was given.
-//
-//   Wide   undocked, full screen, or a big dock: pictures across the top, list
-//          under them, the control strip in two macro-rows.
-//   Short  docked UNDER the OBS preview — wide and shallow. Stacking pictures
-//          on top of the list cannot afford both, so they go side by side.
-//   Tall   docked down one SIDE — a single narrow column. The multiview becomes
-//          a filmstrip and the control strip becomes a stack.
-//
-// Nothing is dropped in any of them; what changes is rank.
-enum class PanelMode { Wide, Short, Tall };
-
-// Narrower than this and the panel is a column, whatever its height.
-inline constexpr int kTallMaxWidth = 760;
-// Shorter than this (and wide enough not to be Tall) and the pictures cannot
-// sit above the list.
-//
-// IT WAS 470, AND THAT BECAME A TRAP. The threshold has to be above the WIDE
-// arrangement's own minimum height, or the panel can never get short enough to
-// be told to change: it sits at its floor, still wide, refusing to shrink. When
-// the mark keys went to three rows and the speed dial grew an export key under
-// it, that floor went from 422 to 471 and crossed the line — measured, and the
-// symptom was a 1400x340 dock that came back 1400x471 still in the wide shape.
-//
-// So this is not a taste number: it is "the wide arrangement no longer fits".
-//
-// AND A CONSTANT CANNOT SAY THAT, which is the second time this trap was
-// sprung and the reason it is now measured instead. The wide arrangement's
-// floor is not one number: it depends on the WIDTH, because below a certain
-// one the strip's six sections stop fitting across three lanes and fold onto
-// more lines. Measured on the panel this was written for: 553 px at 1920 wide,
-// 651 px at 1400. A threshold of 540 is under BOTH, so a docked panel dragged
-// as short as it will go stops at its floor, still wide, and the arrangement
-// that would have fitted is never reached. From the operator's chair the short
-// arrangement simply does not exist.
-//
-// So this constant is only the LOWER BOUND now — shorter than this and the
-// panel is Short whatever else is true — and the real test is the floor the
-// panel reports while it is wearing the wide arrangement. See panelModeFor.
-inline constexpr int kShortMaxHeight = 540;
-// HYSTERESIS, and it is not politeness. Dragging a dock edge across a bare
-// threshold flips the mode back and forth, and every flip re-lays the
-// OBSQTDisplay widgets — which on Windows means re-allocating a D3D swap chain
-// on the graphics thread, several times a second, while a take is recording.
-inline constexpr int kModeHysteresis = 40;
 // HOW FAR APART THE THREE LANES MAY BE PUSHED.
 //
 // The wide arrangement justifies: marks at one end, the speed dial at the
@@ -305,16 +183,13 @@ inline constexpr int kModeHysteresis = 40;
 // between the three groups before it reads as scattered rather than roomy.
 inline int laneGapMax() { return galleryScale() ? 220 : 140; }
 
-// Which arrangement a panel of this size wants. `current` is what it is wearing
-// now, and it is an argument rather than a fresh decision because a threshold
-// crossed on the way in is not the same threshold on the way out.
-// `wideFloorH` is the height the WIDE arrangement last reported as its own
-// minimum, or 0 if it has never worn one. It is measured rather than assumed
-// because it moves with the width (see kShortMaxHeight), and passing it in
-// keeps this function pure — the panel measures, this decides.
-PanelMode panelModeFor(const QSize &size, PanelMode current,
-		       int wideFloorH = 0);
-const char *panelModeName(PanelMode m);
+// The dock hands this a QSize; the arithmetic — and the thresholds it is made
+// of — live in dock-metrics.hpp, where a test with no Qt can reach them.
+inline PanelMode panelModeFor(const QSize &size, PanelMode current,
+			      int wideFloorH = 0)
+{
+	return panelModeFor(size.width(), size.height(), current, wideFloorH);
+}
 
 // ---------------------------------------------------------------------------
 // Lane — WHERE A SECTION LIVES ON ITS LINE
@@ -450,13 +325,15 @@ public:
 
 	// The canvas's own ratio. A vertical canvas is a real thing an operator
 	// streams, so this is not hardcoded to 16:9 — the panel reads it from
-	// obs_get_video_info and the mockup from its own default.
+	// obs_get_video_info and a second renderer from its own default.
 	void setRatio(int w, int h);
 
 	// How tall the naming band is. It is a TALLY as much as a label — which
 	// box is which is read by colour before it is read by letter — so it is
-	// small but never nothing.
-	static constexpr int kTagH = 12;
+	// small but never nothing. One number with the band the tile arithmetic
+	// reserves (kTileTagH, dock-metrics.hpp): that header has no AspectBox
+	// to ask.
+	static constexpr int kTagH = kTileTagH;
 
 protected:
 	void resizeEvent(QResizeEvent *) override;
@@ -467,66 +344,6 @@ private:
 	QWidget *tag_ = nullptr;
 	int rw_ = 16, rh_ = 9;
 };
-
-
-// ---------------------------------------------------------------------------
-// The camera block beside the bays — how many columns, and how big a tile
-// ---------------------------------------------------------------------------
-//
-// ONE COPY, and it lives here because it used to be two: the panel had its own
-// arithmetic and the mockup had this one, so a change that made the mockup look
-// right left the panel exactly as it was. That is not a tidiness point — it is
-// the reason two rounds of "the cameras are still postage stamps" were answered
-// with "it is fixed, look at the mockup".
-//
-// Two wrong answers were tried before this one, and both are worth knowing.
-//
-//   A GRID COLUMN WITH A STRETCH FACTOR. The obvious thing, and it collapsed:
-//   a stretch only shares what is left AFTER every column has its minimum, and
-//   a tile's minimum is nothing.
-//
-//   ceil(sqrt(n)) COLUMNS. Square-ish, and wrong at exactly the count this
-//   panel is most often asked for: eight cameras became 3x3 with an empty cell
-//   in the corner, and the eye finds that hole every time it reads the block.
-//
-// What the block has to do is stand beside the bays and be ABOUT AS TALL AS
-// THEY ARE. So the arrangement is chosen from the bay height: for each column
-// count that wastes no cell, work out how big a 16:9 tile would have to be to
-// fill that height in the rows it implies, and keep the one whose block comes
-// out nearest the width the block is meant to have.
-struct TileBlock {
-	int cols = 1;
-	int tileW = 0;
-	int tileH = 0;
-	int blockW = 0;
-	int blockH = 0;
-	// What ONE bay must be to stand the same height as the camera rows.
-	// The caller sizes the panes from this rather than from what is left.
-	int bayW = 0;
-	int rowH = 0;
-};
-
-// A tile below this is not a confidence monitor any more.
-inline constexpr int kTileMinWidth = 78;
-// THE CEILING IS A SHARE, which is the whole of "the cameras are
-// still much smaller than A". It was a constant 150 px while every other number
-// in this block was proportional, so on a 1000 px panel beside an 840 px A the
-// cameras came out as two stamps with 270 px of empty panel under them. A
-// ceiling has to exist — left free, ONE camera draws itself as big as the
-// picture being watched — but it has to be the same kind of number as the
-// thing it is limiting.
-inline constexpr double kTileMaxShare = 0.34;
-// Between two tiles. It was 2, and with a naming band under each picture that
-// put one row's label hard against the next row's picture.
-inline constexpr int kTileGap = 4;
-
-// `paneW` is the whole monitoring pane, `bays` how many big pictures share it,
-// `n` the configured cameras. `maxH` is how much HEIGHT the block may actually
-// have, which is a different question from how tall the bays are and the one
-// that matters when the panel is docked under the OBS preview: there the pane
-// is wide and shallow, and an arrangement chosen from the width alone asks for
-// four rows of tiles in a pane with room for two. 0 = no limit.
-TileBlock tileBlockFor(int paneW, int bays, int n, int gap, int maxH = 0);
 
 // ---------------------------------------------------------------------------
 // KeyBlock — one captioned section, in two declared shapes
@@ -683,7 +500,7 @@ public:
 	// two narrow cases apart: 520 px of a side dock wants a stack, and 1000 px
 	// of a floating window wants the wide rows even though its three lanes no
 	// longer fit side by side. Left alone (-1) the strip decides for itself
-	// from its width, which is what the mockup's strip-only sizes rely on.
+	// from its width, which is what the strip-only checks rely on.
 	// A section that would be CUT OFF still folds whatever this says.
 	void setStacked(int on); // -1 auto, 0 lanes, 1 stack
 
@@ -722,7 +539,7 @@ public:
 	// will not go below 374 px" is a number with nowhere to go: six sections
 	// have an opinion about it and five of them are innocent, and the one that
 	// is not is usually innocent in the shape you are looking at. Used by the
-	// mockup's --check and --report, which is where a floor gets argued about.
+	// standalone checks, which is where a floor gets argued about.
 	QString describeBlocks() const;
 
 	QSize sizeHint() const override;

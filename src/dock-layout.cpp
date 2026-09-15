@@ -21,47 +21,6 @@
 namespace multireplay {
 
 // ---------------------------------------------------------------------------
-// PanelMode
-// ---------------------------------------------------------------------------
-
-PanelMode panelModeFor(const QSize &size, PanelMode current, int wideFloorH)
-{
-	// Each threshold is widened in the direction that would UNDO the current
-	// mode, so a panel sitting on a boundary keeps what it has until the drag
-	// is meant. Coming out of Tall costs 40 px more width than going in did.
-	const int wLimit = kTallMaxWidth +
-			   (current == PanelMode::Tall ? kModeHysteresis : 0);
-	if (size.width() < wLimit)
-		return PanelMode::Tall;
-
-	// SHORT IS "THE WIDE ARRANGEMENT NO LONGER FITS", and the honest way to
-	// ask that is to compare against what it actually needs rather than
-	// against a number written down once. A panel dragged as short as it will
-	// go comes to rest exactly ON its floor, so the test has to fire AT that
-	// height, not below it - the hysteresis is what gives it room to.
-	const int need = std::max(kShortMaxHeight, wideFloorH + kModeHysteresis);
-	const int hLimit = need + (current == PanelMode::Short ? kModeHysteresis
-								 : 0);
-	if (size.height() < hLimit)
-		return PanelMode::Short;
-
-	return PanelMode::Wide;
-}
-
-const char *panelModeName(PanelMode m)
-{
-	switch (m) {
-	case PanelMode::Wide:
-		return "wide";
-	case PanelMode::Short:
-		return "short";
-	case PanelMode::Tall:
-		return "tall";
-	}
-	return "?";
-}
-
-// ---------------------------------------------------------------------------
 // FlowLayout
 // ---------------------------------------------------------------------------
 
@@ -352,122 +311,11 @@ void AspectBox::relayout()
 }
 
 
-// ---------------------------------------------------------------------------
-// The camera block — see the note in the header
-// ---------------------------------------------------------------------------
-
-TileBlock tileBlockFor(int paneW, int bays, int n, int gap, int maxH)
-{
-	TileBlock best;
-	if (n <= 0 || paneW <= 0 || bays <= 0)
-		return best;
-	const auto aspect = [](int w) { return std::max(1, w * 9 / 16); };
-	const int tagH = AspectBox::kTagH;
-	// Proportional, not a constant: see kTileMaxShare.
-	const int ceiling =
-		std::max(kTileMinWidth, (int)(paneW * kTileMaxShare));
-
-	// THE CAMERAS FILL THE WIDTH; the height is what cannot always be filled —
-	// three 16:9 pictures do not tile a 3.7:1 rectangle — so the arrangement
-	// that wastes least is the one chosen rather than one written down. Aiming
-	// at a flat share of the pane instead (it was 22%) starved them: beside a
-	// height-bound 16:9 A on a maximised panel that share was a narrow stacked
-	// column with hundreds of px of black next to it.
-
-	// ONE ROW UP TO THREE, TWO ROWS BEYOND — DECLARED, NOT SCORED.
-	//
-	//     1..3 cameras   one row,  n columns    A | C1 | C2 | C3
-	//     4              two rows, 2 columns
-	//     5, 6           two rows, 3 columns
-	//     7, 8           two rows, 4 columns
-	//
-	// which is ceil(n/2) columns past three. NEVER MORE THAN TWO ROWS: the
-	// cameras stand beside the bays, and a third row makes each of them
-	// smaller than the glance they exist for. Declared, because "three
-	// across, then four" is a decision about how a rig is read and a score
-	// agrees with it only by accident.
-	const int cols = (n <= 3) ? n : (n + 1) / 2;
-	const int rows = (n + cols - 1) / cols;
-
-	// THE WHOLE MONITORING ROW IS ONE HEIGHT, and that is the change that
-	// took the empty band out from under the cameras.
-	//
-	// It used to work the other way round: the bays' height was settled first
-	// and the cameras were then fitted INSIDE it, so a single row of tiles
-	// came out half as tall as A and the rest of the block was a strip of
-	// nothing. Cameras are 16:9 like the bays, so the honest statement is that
-	// A, B and every tile row share one height h - and h is whatever makes the
-	// row exactly as wide as the pane:
-	//
-	//     paneW = bays*aw(h) + block(h),  aw(h) = (h - tag) * 16/9
-	//
-	// One line of algebra rather than a search, and it fills BOTH dimensions:
-	// two cameras beside A become three equal pictures across the row, eight
-	// become four-by-two whose two rows together are exactly as tall as A.
-	// Nothing is left over to park, which is why there is no spare row any
-	// more.
-	const double perBay = 16.0 / 9.0;
-	const double perTile = cols * 16.0 / (9.0 * rows);
-	const double k = bays * perBay + perTile;
-	const double cst = gap * bays + (cols - 1) * kTileGap -
-			   bays * perBay * tagH -
-			   cols * (16.0 / 9.0) *
-				   ((rows - 1) * kTileGap / (double)rows + tagH);
-	int h = (k > 0.01) ? (int)((paneW - cst) / k) : maxH;
-	// ...AND NEVER TALLER THAN THE ROOM. Clamped, the row simply stops short
-	// of the pane's width — which is the one thing 16:9 cannot be argued out
-	// of when the panel is wide and shallow.
-	if (maxH > 0)
-		h = std::min(h, maxH);
-	h = std::max(h, kTileMinWidth * 9 / 16 + tagH);
-
-	int th = std::max(1, (h - (rows - 1) * kTileGap) / rows - tagH);
-	int tw = std::clamp(th * 16 / 9, kTileMinWidth, ceiling);
-	th = aspect(tw);
-	const int blockW = cols * tw + (cols - 1) * kTileGap;
-
-	// THE ROW STILL SPANS THE PANE AFTER h HAS BEEN CLAMPED.
-	//
-	// h is solved so that bays*aw(h) + block(h) == paneW — the row is exactly
-	// as wide as the pane. maxH (monitorRoomH: the list's floor, and the
-	// half-panel rule) then caps h, and finalBayW/blockW below are taken from
-	// the CAPPED h. At that shorter height a 16:9 row of this composition is
-	// narrower than the pane, and the difference used to come back as dead
-	// panel — the bays' AspectBox letterboxed it and the tile grid left it
-	// trailing. The note under the clamp called this out ("the row simply
-	// stops short of the pane's width") and accepted it; on a tall Wide panel
-	// with two tile rows it is a band up to ~185 px wide (measured: eight
-	// cameras at 1456).
-	//
-	// The tiles are confidence monitors and keep the size their height gives
-	// them; the freed width goes to the BAYS, which are what is being watched.
-	// Their AspectBox still centres a 16:9 picture, so A/B sit centred in a
-	// slightly wider slot instead of the row falling short of the edge. Only
-	// ever a widen: a bay narrower than aw(h) would letterbox vertically,
-	// which is worse, and the caller already clamps an over-wide block.
-	int finalBayW = std::max(40, (h - tagH) * 16 / 9);
-	if (bays > 0) {
-		const int filled = (paneW - blockW - gap * bays) / bays;
-		if (filled > finalBayW)
-			finalBayW = filled;
-	}
-
-	best = {cols,
-		tw,
-		th,
-		blockW,
-		rows * (th + tagH) + (rows - 1) * kTileGap,
-		finalBayW,
-		h};
-	return best;
-}
-
-
 KeyBlock::KeyBlock(const QString &caption, QWidget *parent)
 	: QWidget(parent), caption_(caption)
 {
 	// A HANDLE FOR THE GATE. This class has no Q_OBJECT - giving it one would
-	// put a moc'd type in a header the mockup also compiles - so a name is how
+	// put a moc'd type in a header a second renderer also compiles - so a name is how
 	// a section is found from outside, exactly as the camera tiles are.
 	setObjectName(QStringLiteral("mrBlock"));
 	auto *v = new QVBoxLayout(this);
@@ -646,7 +494,7 @@ void KeyBlock::apply()
 			// back. Showing everything unconditionally is the
 			// obvious version of this line, and it un-hides the
 			// camera slots the panel deliberately keeps empty —
-			// which is exactly what the mockup drew the first time
+			// which is exactly what a second renderer drew the first time
 			// it ran.
 			// THE KEY ITSELF SHRINKS WHEN THE SECTION FOLDS. Only
 			// buttons: a slider, a two-line clock or the bay selector
@@ -874,7 +722,7 @@ QString ControlStrip::describeBlocks() const
 bool ControlStrip::flatFits(int w) const
 {
 	// Does the WIDE arrangement fit? A wide section is one long row, and a row
-	// wider than the strip does not wrap - it is CUT. The mockup drew it: at
+	// wider than the strip does not wrap - it is CUT. A second renderer drew it: at
 	// 460 px the wide MARK ended after "-10s" and the rest of its keys were
 	// simply not on the panel. So the wide arrangement is only ever worn when
 	// every section of it fits.
@@ -890,7 +738,7 @@ int ControlStrip::minHeightForWidth(int w) const
 	// resizeEvent makes, asked in advance. It used to report the BETTER of the
 	// two shapes, which was true while the strip was free to choose either;
 	// now that the panel's mode can pin it, "better" is a shape it may not be
-	// allowed to take. The mockup drew the consequence at 340x900: the floor
+	// allowed to take. A second renderer drew the consequence at 340x900: the floor
 	// came back as the packed wide rows (~276 px), the strip was wearing the
 	// stack (~450), and the last two sections — VELOCITA and EXPORT — were
 	// simply cut off the bottom of the panel.
@@ -1144,7 +992,7 @@ int ControlStrip::layoutLanes(int width, bool apply) const
 		// hidden and it measures zero - so counting blocks rather than
 		// widths made the centre lane look occupied on both macro-rows, and
 		// the transport stayed on the lower one with the whole upper one
-		// empty above it. The mockup could not show it: there the section is
+		// empty above it. A second renderer could not show it: there the section is
 		// not built at all when B is off, so the count was right there and
 		// wrong in the panel.
 		for (int k = ln.first; k < ln.last; k++)

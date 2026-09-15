@@ -102,3 +102,7 @@ mr_add_test(obs-multireplay-angle-channels-tests angle_channels "${MR_TESTS}/ang
 # showNotice's callers use to put a localized headline in front of an
 # English detail instead of showing the raw English on its own.
 mr_add_test(obs-multireplay-error-locale-tests error_locale "${MR_TESTS}/error_locale_test.cpp")
+
+# Panel-mode / tile arithmetic, extracted from dock-layout so the standalone
+# suite can check the sizes without Qt (spec DD-008).
+mr_add_test(obs-multireplay-dock-metrics-tests dock_metrics "${MR_TESTS}/dock_metrics_test.cpp")
