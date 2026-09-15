@@ -132,6 +132,7 @@ QWidget *MultiReplayDock::buildToolbar()
 	// this panel at >100 ms — and it does not follow a theme change on its
 	// own, which is why this used to be set twice, here and in applyTheme().
 	projectLbl_->setProperty("mrProject", true);
+	projectLbl_->setAccessibleName(obs_module_text("Dock.ProjectA11y"));
 	projectLbl_->hide();
 	h->addWidget(projectLbl_);
 	// Search and Live sit in the MIDDLE of their row, as they do on the
@@ -148,9 +149,14 @@ QWidget *MultiReplayDock::buildToolbar()
 	// not on a key, and it was the one that stayed the old grey after a theme
 	// change.
 	searchIcon_ = new QLabel(box);
+	searchIcon_->setObjectName("mrSearchIcon");
+	searchIcon_->setAttribute(Qt::WA_TransparentForMouseEvents);
+	searchIcon_->setToolTip(obs_module_text("Dock.Search"));
 	h->addWidget(searchIcon_);
 	restyleSearchIcon();
 	search_ = new QLineEdit(box);
+	search_->setObjectName("mrSearch");
+	search_->setAccessibleName(obs_module_text("Dock.Search"));
 	search_->setPlaceholderText(obs_module_text("Dock.Search"));
 	search_->setClearButtonEnabled(true);
 	// IN EM, not fixed pixels: 190/90 px was sized for OBS's default font.
@@ -252,6 +258,7 @@ QWidget *MultiReplayDock::buildToolbar()
 	// operator had to remember which three were which - so the stretch goes
 	// between them, and the panel keys end flush with the panel's edge.
 	h->addStretch(1);
+	// §7.3: Live, Monitors and the gear stay visible in every panel mode.
 	h->addWidget(monitorsBtn_);
 	h->addWidget(buildGearMenu());
 	h->addWidget(fullScreenBtn_);
@@ -407,7 +414,6 @@ QWidget *MultiReplayDock::buildPreview()
 	// nearly all of it a second copy of what the on-air band and the position
 	// bar already say. What was only said there — the notice answering a key
 	// the operator just pressed — is on the status line now.)
-	monitorsStrip_ = nullptr;
 
 	box->setObjectName(QStringLiteral("mrPreviewPane"));
 	previewPane_ = box; // the splitter child the Monitors key gives back
@@ -541,17 +547,30 @@ QWidget *MultiReplayDock::buildChannelRow()
 	// — rather than naming two things with a bar between them.
 	const std::pair<const char *, int> chanChoices[] = {
 		{"A↔B", 2}, {"A", 0}, {"B", 1}};
+	// UX-13: the keys carry variable-width text, so their width is
+	// measured rather than fixed. #mrChanSel adds 6 px of padding and a
+	// 1 px border per side; kChanKeyWidth is the floor, so no font or
+	// translation can make them narrower than today's target.
+	int chanKeyW = kChanKeyWidth;
+	QVector<QPushButton *> chanKeys;
 	for (const auto &[label, code] : chanChoices) {
 		auto *b = new QPushButton(QString::fromUtf8(label), sel);
 		b->setObjectName("mrChanSel");
 		b->setCheckable(true);
 		b->setChecked(code == 0); // A, as it has always been
-		b->setFixedSize(kChanKeyWidth, kKeyH);
 		b->setCursor(Qt::PointingHandCursor);
+		b->setToolTip(obs_module_text("Dock.ChannelHint"));
+		b->ensurePolished();
+		chanKeyW = std::max(
+			chanKeyW,
+			b->fontMetrics().horizontalAdvance(b->text()) + 14);
 		setKeyId(b, QString("bay%1").arg(code));
 		chanSel_->addButton(b, code);
 		h->addWidget(b);
+		chanKeys << b;
 	}
+	for (QPushButton *b : chanKeys)
+		b->setFixedSize(chanKeyW, kKeyH);
 	connect(chanSel_, &QButtonGroup::idClicked, this, [this](int code) {
 		setActiveChannel(code == 1 ? Which::B : Which::A, code == 2);
 	});
@@ -565,7 +584,7 @@ QWidget *MultiReplayDock::buildChannelRow()
 	swapBtn_ = iconBtn(Icon::Swap, "swapBays",
 			   obs_module_text("Dock.SwapChannels"), this,
 			   "mrChanSel");
-	swapBtn_->setFixedSize(kChanKeyWidth, kKeyH);
+	swapBtn_->setFixedSize(chanKeyW, kKeyH);
 	swapBtn_->setCursor(Qt::PointingHandCursor);
 	connect(swapBtn_, &QPushButton::clicked, this,
 		&MultiReplayDock::swapChannels);
@@ -706,6 +725,7 @@ KeyBlock *MultiReplayDock::buildTransport()
 	setKeyIcon(more, Icon::Menu, tintsFor(sc()), 14);
 	more->setCursor(Qt::PointingHandCursor);
 	more->setToolTip(obs_module_text("Dock.PlayOptions"));
+	more->setAccessibleName(obs_module_text("Dock.PlayOptions"));
 	setKeyId(more, QStringLiteral("playOptions"));
 	{
 		auto *menu = new QMenu(more);
@@ -784,6 +804,8 @@ KeyBlock *MultiReplayDock::buildTransport()
 	nowBtn_->setCursor(Qt::PointingHandCursor);
 	nowBtn_->setToolTip(obs_module_text("Dock.JumpToNow"));
 	setKeyId(nowBtn_, QStringLiteral("now"));
+	// UX-13: NOW is a fixed word, so its width is a design floor rather
+	// than a text measurement.
 	nowBtn_->setMinimumWidth(38);
 
 	// One frame back, one frame forward. The step BACK is not the forward one
@@ -1260,6 +1282,7 @@ QToolButton *MultiReplayDock::buildGearMenu()
 	setKeyId(gear, QStringLiteral("settings"));
 	gear->setCursor(Qt::PointingHandCursor);
 	gear->setToolTip(obs_module_text("Dock.Settings"));
+	gear->setAccessibleName(obs_module_text("Dock.Settings"));
 	gear->setFixedHeight(kKeyH);
 	{
 		auto *menu = new QMenu(gear);
@@ -1325,6 +1348,8 @@ KeyBlock *MultiReplayDock::buildRecBlock()
 	// disagreeing about what the key is.
 	setKeyIconRole(recBtn_, Icon::Rec, IconRole::Rec, tintsFor(sc()), 13);
 	recBtn_->setProperty("recording", false);
+	// UX-13: the label is only ever REC or STOP — two fixed words, so a
+	// fixed floor is correct here.
 	recBtn_->setMinimumWidth(78);
 	connect(recBtn_, &QPushButton::clicked, this, [this]() {
 		auto &core = ReplayCore::instance();
@@ -1349,6 +1374,7 @@ KeyBlock *MultiReplayDock::buildRecBlock()
 	// say (see poll()).
 	healthBtn_ = new QPushButton(this);
 	healthBtn_->setObjectName("mrHealth");
+	healthBtn_->setAccessibleName(obs_module_text("Dock.HealthTitle"));
 	healthBtn_->setCursor(Qt::PointingHandCursor);
 	healthBtn_->setFlat(true);
 	healthBtn_->setFixedHeight(kKeyH);
@@ -1493,6 +1519,7 @@ KeyBlock *MultiReplayDock::buildExportBlock()
 	setKeyIcon(edit, Icon::More, tintsFor(sc()), 14);
 	edit->setCursor(Qt::PointingHandCursor);
 	edit->setToolTip(obs_module_text("Dock.ClipActions"));
+	edit->setAccessibleName(obs_module_text("Dock.ClipActions"));
 	setKeyId(edit, QStringLiteral("clipActions"));
 	{
 		auto *menu = new QMenu(edit);
@@ -1558,8 +1585,9 @@ KeyBlock *MultiReplayDock::buildExportBlock()
 	// where this section sits closest to the panel's own edge — a stacked
 	// side dock, a Short arrangement's left column — and a labelled key
 	// there is the one thing in the row asking for more width than the
-	// other three combined (measured on the mockup: it moved the toolbar's
-	// own "Live" key down to its CSS floor, clipped, at 1400x340).
+	// other three combined (measured in the standalone layout checks: it
+	// moved the toolbar's own "Live" key down to its CSS floor, clipped,
+	// at 1400x340).
 	const QString exportLabel = exportKey->text();
 	blk->setOnShape([exportKey, exportLabel](bool flat) {
 		exportKey->setText(flat ? QString() : exportLabel);
@@ -1599,6 +1627,7 @@ KeyBlock *MultiReplayDock::buildMoreBlock()
 	setKeyIcon(btn, Icon::More, tintsFor(sc()), 14);
 	btn->setCursor(Qt::PointingHandCursor);
 	btn->setToolTip(obs_module_text("Dock.ZoneMoreHint"));
+	btn->setAccessibleName(obs_module_text("Dock.ZoneMoreHint"));
 	setKeyId(btn, QStringLiteral("moreCollapsed"));
 	auto *menu = new QMenu(btn);
 	connect(menu, &QMenu::aboutToShow, this, [this, menu]() {
@@ -1675,7 +1704,7 @@ KeyBlock *MultiReplayDock::buildMoreBlock()
 // §6.3's other half: bay/clips/speed disappear from the strip's own
 // arithmetic in Tall (see orderFor's isHidden() check, dock-layout.cpp),
 // and the "more" key takes their place. angleBlock_ is never null here —
-// unlike the mockup's bay_, this dock always builds it (§2.10 collapses
+// unlike a standalone renderer's bay_, this dock always builds it (§2.10 collapses
 // its CONTENT when B is off, via applyChannelBVisibility, not the section
 // itself) — but hiding it wholesale for Tall is independent of that and
 // composes with it fine: whichever reason hid it, orderFor stops reserving
@@ -1958,6 +1987,8 @@ QWidget *MultiReplayDock::buildEvents()
 	events_->setWordWrap(false);
 	events_->setFrameShape(QFrame::NoFrame);
 	events_->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+	events_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+	events_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 	events_->setContextMenuPolicy(Qt::CustomContextMenu);
 	// The transport keys have to work from HERE, which is where the operator's
 	// focus lives for most of a match. The table would otherwise swallow Enter
