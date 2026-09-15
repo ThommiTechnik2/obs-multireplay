@@ -35,7 +35,7 @@
 // bright key with a dim mark on it, which reads as disabled.
 //
 // NOTHING OBS-SPECIFIC IS IN HERE, on purpose: like dock-layout and dock-style,
-// this file is driven by tools/dock-mockup, which is where an icon set is judged
+// this file is driven by the standalone layout checks, which is where an icon set is judged
 // — twenty-two marks at 16 px are looked at together or not at all.
 #pragma once
 
@@ -186,7 +186,7 @@ inline IconTints tintsFor(const Scheme &s)
 }
 
 // The four states, for one role. Kept beside tintsFor so the mapping is read
-// next to the colours it maps, and shared by setKeyIcon and the mockup.
+// next to the colours it maps, and shared by setKeyIcon and a second renderer.
 inline IconTints tintsForRole(const IconTints &t, IconRole role)
 {
 	IconTints r = t;

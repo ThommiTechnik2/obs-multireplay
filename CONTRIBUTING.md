@@ -11,9 +11,9 @@ start.
 - **Build and run the test suite.** `ctest --test-dir build_x64 -C
   RelWithDebInfo` for the unit tests; they need no OBS, no Qt and no FFmpeg
   and take well under a minute. If your change touches `src/dock-layout.cpp`
-  or `src/dock-style.hpp`, also build and run `tools/dock-mockup` (see
-  below) — it's the same code the plugin uses, without the four-minute OBS
-  launch cycle.
+  or `src/dock-style.hpp`, run the real plugin through the gate, `pwsh -File
+  scripts/run-selftest.ps1` (see below) — it builds, runs the unit tests,
+  installs the plugin and drives the real dock inside OBS.
 - **Small, reviewable commits.** One concern per commit, a message that says
   *why*, not just *what* (the diff already says what).
 - **Don't reformat what you didn't touch.** There is no `.clang-format` in
@@ -25,8 +25,8 @@ start.
 ## Invariants — things that will not build, or will build and be wrong
 
 These come from the code's own comments, several of them written right after
-a real regression. They're enforced by the gate script and the mockup's
-`--check` mode where that's possible; where it isn't, this is the only place
+a real regression. They're enforced by the self-test gate and the standalone
+geometry checks where that's possible; where it isn't, this is the only place
 they're written down.
 
 - **Never re-parent an `OBSQTDisplay`.** Qt destroys the native window
@@ -42,13 +42,12 @@ they're written down.
   Destructive actions with an explicit confirmation (Delete All) and
   anything reached only from Settings/wizard dialogs are the accepted
   exceptions.
-- **A GUI layout decision is judged in `tools/dock-mockup`, not by eyeballing
-  OBS.** It shares `dock-layout.cpp` and `dock-style.hpp` with the real dock
-  — same arithmetic, same stylesheet — and resizes through the sizes that
-  matter in about a second instead of a four-minute OBS relaunch per look.
-  Run `dock-mockup.exe --check` (add `--host=obs` to test against OBS's own
-  theme, `--font-scale=125` for a larger OBS font) before changing anything
-  under `dock-layout.*` or `dock-style.hpp`.
+- **A GUI layout decision is judged on the real dock, not by eyeballing a
+  screenshot.** `pwsh -File scripts/run-selftest.ps1` (see below) builds,
+  runs the unit tests, installs the plugin and drives the real widget tree
+  inside OBS — sizes, tabs, displays, re-parent behaviour. Pure geometry and
+  stylesheet arithmetic that needs no widgets belongs in the standalone CTest
+  suite instead; never in a second renderer.
 - **`ControlStrip` reports two heights, not one** (`ControlStripItem`: a
   floor for the flat/folded shape, a preference for the wide one). A widget
   normally can't say both, and collapsing them back into one is exactly the
@@ -124,14 +123,23 @@ reason `find-orphan-constants.sh` isn't: it can't tell a stale copy from
 two places that are still legitimately true for the same reason, so read
 every hit before touching either copy.
 
-## Running the mockup
+## Running the gate
+
+For a UI, layout or style change, the evidence comes from the real plugin
+driven through OBS:
 
 ```sh
-cmake -S tools/dock-mockup -B build_mockup -DCMAKE_PREFIX_PATH=<path-to-qt6>
-cmake --build build_mockup --config RelWithDebInfo
-build_mockup/RelWithDebInfo/dock-mockup --check      # the gate: exit 0 = pass
-build_mockup/RelWithDebInfo/dock-mockup --show        # a live window to drag
-build_mockup/RelWithDebInfo/dock-mockup <folder>      # writes PNGs at six sizes
+pwsh -File scripts/run-selftest.ps1                  # builds, unit tests, self-test in OBS
+pwsh -File scripts/run-selftest.ps1 -SkipBuild       # reuse the last build_x64
+```
+
+The pure geometry and stylesheet arithmetic that needs no widget tree is
+checked by the standalone suite, which needs no OBS, no Qt and no FFmpeg:
+
+```sh
+cmake -S tests -B build_tests
+cmake --build build_tests --config RelWithDebInfo
+ctest --test-dir build_tests -C RelWithDebInfo --output-on-failure
 ```
 
 ## Licence
