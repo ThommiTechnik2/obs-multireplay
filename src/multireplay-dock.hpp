@@ -1095,18 +1095,7 @@ public:
 	// steht), indem die passende Zeile ausgewaehlt und dann ganz normal
 	// cueSelected() aufgerufen wird -- keine doppelte Cue-Logik noetig.
 	void selectEventByIdBridge(int id)
-	{
-		if (!events_)
-			return;
-		for (int row = 0; row < events_->rowCount(); row++) {
-			QTableWidgetItem *idIt = events_->item(row, kColId);
-			if (idIt && idIt->data(Qt::UserRole).toInt() == id) {
-				events_->selectRow(row);
-				cueSelected();
-				return;
-			}
-		}
-	}
+	
 
 	// --- THE PANEL'S COLOURS ------------------------------------------------
 	// Rebuilds the style sheet from Config.uiTheme and the application palette

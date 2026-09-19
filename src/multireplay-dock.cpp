@@ -3941,6 +3941,20 @@ void MultiReplayDock::nudgeSpeed(int deltaPct)
 	applyReplaySpeed(std::clamp(speedPct_ + deltaPct, 5, 200));
 }
 
+void MultiReplayDock::selectEventByIdBridge(int id)
+{
+	if (!events_)
+		return;
+	for (int row = 0; row < events_->rowCount(); row++) {
+		QTableWidgetItem *idIt = events_->item(row, kColId);
+		if (idIt && idIt->data(Qt::UserRole).toInt() == id) {
+			events_->selectRow(row);
+			cueSelected();
+			return;
+		}
+	}
+}
+
 void MultiReplayDock::cueSelected()
 {
 	// Selecting a row SHOWS that event, on the channel the selector points at.
