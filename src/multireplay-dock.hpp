@@ -1059,6 +1059,22 @@ private:
 	void applyPanelMode(PanelMode m, bool force = false);
 
 public:
+	// --- BRIDGE ENTRY POINTS (obs-websocket vendor requests) ---------------
+	// Thin public wrappers around the private step/speed logic below, added
+	// so an external controller (via a "multireplay" vendor request) can
+	// drive several frame steps or set an exact speed with ONE call instead
+	// of firing many TriggerHotkeyByName round-trips — see plugin-main.cpp.
+	void stepFramesBridge(int delta)
+	{
+		if (delta > 0) {
+			for (int i = 0; i < delta; i++)
+				stepFrameForward();
+		} else {
+			for (int i = 0; i < -delta; i++)
+				stepFrameBackward();
+		}
+	}
+	void setSpeedPercentBridge(int pct) { applyReplaySpeed(pct); }
 	// --- THE PANEL'S COLOURS ------------------------------------------------
 	// Rebuilds the style sheet from Config.uiTheme and the application palette
 	// — which is where OBS puts the current theme's colours (see schemeFor in
