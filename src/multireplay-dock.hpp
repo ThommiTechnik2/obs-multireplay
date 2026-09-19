@@ -1084,6 +1084,30 @@ public:
 	// die bleibt fuer die einzelnen Frame-+-1/-1-Tasten richtig).
 	void scrubSecondsBridge(double seconds) { scrubBySeconds(seconds); }
 
+	// Fuer LAST CUE / NEXT CUE: bewegt die Auswahl in der Event-Liste um
+	// delta (+1/-1) und cued automatisch das neu ausgewaehlte Ereignis --
+	// genau das, was stepEventSelection() schon fuer die Pfeiltasten der
+	// Dock-UI macht, hier nur zusaetzlich von aussen erreichbar.
+	void stepEventSelectionBridge(int delta) { stepEventSelection(delta); }
+
+	// Fuer die dreistellige Zifferneingabe: springt direkt zu dem Ereignis
+	// mit dieser ID (dieselbe ID, die in der Id-Spalte der Event-Liste
+	// steht), indem die passende Zeile ausgewaehlt und dann ganz normal
+	// cueSelected() aufgerufen wird -- keine doppelte Cue-Logik noetig.
+	void selectEventByIdBridge(int id)
+	{
+		if (!events_)
+			return;
+		for (int row = 0; row < events_->rowCount(); row++) {
+			QTableWidgetItem *idIt = events_->item(row, kColId);
+			if (idIt && idIt->data(Qt::UserRole).toInt() == id) {
+				events_->selectRow(row);
+				cueSelected();
+				return;
+			}
+		}
+	}
+
 	// --- THE PANEL'S COLOURS ------------------------------------------------
 	// Rebuilds the style sheet from Config.uiTheme and the application palette
 	// — which is where OBS puts the current theme's colours (see schemeFor in

@@ -91,6 +91,31 @@ void vendor_scrub_seconds(obs_data_t *request_data, obs_data_t *response_data, v
 	multireplay::g_dock->scrubSecondsBridge(seconds);
 	obs_data_set_bool(response_data, "success", true);
 }
+
+void vendor_step_event_selection(obs_data_t *request_data, obs_data_t *response_data, void *)
+{
+	if (!multireplay::g_dock) {
+		obs_data_set_bool(response_data, "success", false);
+		obs_data_set_string(response_data, "error", "dock not ready");
+		return;
+	}
+	long long delta = obs_data_get_int(request_data, "delta");
+	multireplay::g_dock->stepEventSelectionBridge((int)delta);
+	obs_data_set_bool(response_data, "success", true);
+}
+
+void vendor_select_event_by_id(obs_data_t *request_data, obs_data_t *response_data, void *)
+{
+	if (!multireplay::g_dock) {
+		obs_data_set_bool(response_data, "success", false);
+		obs_data_set_string(response_data, "error", "dock not ready");
+		return;
+	}
+	long long id = obs_data_get_int(request_data, "id");
+	multireplay::g_dock->selectEventByIdBridge((int)id);
+	obs_data_set_bool(response_data, "success", true);
+}
+}
 }
 
 namespace {
@@ -291,8 +316,13 @@ void obs_module_post_load(void)
 						       vendor_set_speed, nullptr);
 		obs_websocket_vendor_register_request(g_vendor, "scrub_seconds",
 						       vendor_scrub_seconds, nullptr);
+		obs_websocket_vendor_register_request(g_vendor, "step_event_selection",
+						       vendor_step_event_selection, nullptr);
+		obs_websocket_vendor_register_request(g_vendor, "select_event_by_id",
+						       vendor_select_event_by_id, nullptr);
 		obs_log(LOG_INFO, "obs-websocket vendor \"multireplay\" registered "
-				  "(step_frames, set_speed, scrub_seconds)");
+				  "(step_frames, set_speed, scrub_seconds, "
+				  "step_event_selection, select_event_by_id)");
 	} else {
 		obs_log(LOG_WARNING, "obs-websocket not found — vendor requests "
 				     "unavailable (bridge falls back to hotkeys)");
