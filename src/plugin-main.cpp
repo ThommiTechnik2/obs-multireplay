@@ -37,9 +37,60 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "selftest.hpp"
 #include "branch-output-install.hpp"
 #include "updater.hpp"
+#include "dock-internal.hpp"  // g_dock — the live MultiReplayDock instance
+#include "obs-websocket-api.h" // vendored single header, no link dependency
 
 namespace {
 constexpr const char *kDockId = "obs-multireplay-dock";
+}
+
+namespace {
+// --- obs-websocket vendor requests --------------------------------------
+// Bridge entry points for an external controller (e.g. a USB panel driver)
+// that needs to move several frames or set an exact speed with ONE
+// websocket round-trip, instead of firing many TriggerHotkeyByName calls in
+// a row — the latter floods OBS's hotkey dispatch at high event rates (see
+// the jog-wheel "wheel of death" this was written to fix).
+//
+// Request "step_frames", data: {"delta": <int>}  (positive = forward)
+// Request "set_speed",   data: {"percent": <int, 5..200>}
+obs_websocket_vendor g_vendor = nullptr;
+
+void vendor_step_frames(obs_data_t *request_data, obs_data_t *response_data, void *)
+{
+	if (!multireplay::g_dock) {
+		obs_data_set_bool(response_data, "success", false);
+		obs_data_set_string(response_data, "error", "dock not ready");
+		return;
+	}
+	long long delta = obs_data_get_int(request_data, "delta");
+	multireplay::g_dock->stepFramesBridge((int)delta);
+	obs_data_set_bool(response_data, "success", true);
+}
+
+void vendor_set_speed(obs_data_t *request_data, obs_data_t *response_data, void *)
+{
+	if (!multireplay::g_dock) {
+		obs_data_set_bool(response_data, "success", false);
+		obs_data_set_string(response_data, "error", "dock not ready");
+		return;
+	}
+	long long pct = obs_data_get_int(request_data, "percent");
+	multireplay::g_dock->setSpeedPercentBridge((int)pct);
+	obs_data_set_bool(response_data, "success", true);
+}
+
+void vendor_scrub_seconds(obs_data_t *request_data, obs_data_t *response_data, void *)
+{
+	if (!multireplay::g_dock) {
+		obs_data_set_bool(response_data, "success", false);
+		obs_data_set_string(response_data, "error", "dock not ready");
+		return;
+	}
+	double seconds = obs_data_get_double(request_data, "seconds");
+	multireplay::g_dock->scrubSecondsBridge(seconds);
+	obs_data_set_bool(response_data, "success", true);
+}
 }
 
 namespace {
@@ -227,6 +278,24 @@ void obs_module_post_load(void)
 					 dock)) {
 		obs_log(LOG_ERROR, "Failed to register the obs-multireplay dock");
 		delete dock;
+	}
+
+	// Register the "multireplay" obs-websocket vendor. MUST happen from
+	// obs_module_post_load() (see obs-websocket-api.h) — obs-websocket
+	// itself may not be present, in which case this is a harmless no-op.
+	g_vendor = obs_websocket_register_vendor("multireplay");
+	if (g_vendor) {
+		obs_websocket_vendor_register_request(g_vendor, "step_frames",
+						       vendor_step_frames, nullptr);
+		obs_websocket_vendor_register_request(g_vendor, "set_speed",
+						       vendor_set_speed, nullptr);
+		obs_websocket_vendor_register_request(g_vendor, "scrub_seconds",
+						       vendor_scrub_seconds, nullptr);
+		obs_log(LOG_INFO, "obs-websocket vendor \"multireplay\" registered "
+				  "(step_frames, set_speed, scrub_seconds)");
+	} else {
+		obs_log(LOG_WARNING, "obs-websocket not found — vendor requests "
+				     "unavailable (bridge falls back to hotkeys)");
 	}
 }
 
