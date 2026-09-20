@@ -1094,7 +1094,7 @@ public:
 	// mit dieser ID (dieselbe ID, die in der Id-Spalte der Event-Liste
 	// steht), indem die passende Zeile ausgewaehlt und dann ganz normal
 	// cueSelected() aufgerufen wird -- keine doppelte Cue-Logik noetig.
-	void selectEventByIdBridge(int id)
+	void selectEventByIdBridge(int id);
 	
 
 	// --- THE PANEL'S COLOURS ------------------------------------------------
