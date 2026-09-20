@@ -114,7 +114,7 @@ void vendor_select_event_by_id(obs_data_t *request_data, obs_data_t *response_da
 	obs_data_set_bool(response_data, "success", true);
 }
 
-void vendor_get_playback_status(obs_data_t *request_data, obs_data_t *response_data, void *)
+void vendor_get_playback_status(obs_data_t *, obs_data_t *response_data, void *)
 {
 	if (!multireplay::g_dock) {
 		obs_data_set_bool(response_data, "success", false);
@@ -122,10 +122,10 @@ void vendor_get_playback_status(obs_data_t *request_data, obs_data_t *response_d
 		return;
 	}
 
-	int64_t cursorMs = multireplay::g_dock->markTimeNs() / 1000000;
+	int64_t cursorMs = multireplay::g_dock->markTimeNsBridge() / 1000000;
 	int speedPercent = multireplay::g_dock->currentSpeedPercentBridge();
 
-	auto selected = multireplay::g_dock->selectedEventIds();
+	auto selected = multireplay::g_dock->selectedEventIdsBridge();
 	int eventId = !selected.empty() ? selected.front()
 		: multireplay::EventStore::instance().lastEventId();
 

@@ -1076,6 +1076,8 @@ public:
 	}
 	void setSpeedPercentBridge(int pct) { applyReplaySpeed(pct); }
 	int currentSpeedPercentBridge() const { return speedPct_; }
+	int64_t markTimeNsBridge() const { return markTimeNs(); }
+	std::vector<int> selectedEventIdsBridge() const { return selectedEventIds(); }
 
 
 	// Fuer das Jog-Rad: EIN direkter Sprung um N Sekunden (scrubBySeconds),
