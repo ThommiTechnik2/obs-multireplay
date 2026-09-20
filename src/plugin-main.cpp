@@ -128,11 +128,13 @@ void vendor_get_playback_status(obs_data_t *, obs_data_t *response_data, void *)
 	auto selected = multireplay::g_dock->selectedEventIdsBridge();
 	int eventId = !selected.empty() ? selected.front()
 		: multireplay::EventStore::instance().lastEventId();
+	int activeList = multireplay::EventStore::instance().selectedList();
 
 	obs_data_set_bool(response_data, "success", true);
 	obs_data_set_int(response_data, "cursorMs", cursorMs);
 	obs_data_set_int(response_data, "speedPercent", speedPercent);
 	obs_data_set_int(response_data, "eventId", eventId);
+	obs_data_set_int(response_data, "activeList", activeList);
 }
 
 void vendor_toggle_active_channel(obs_data_t *, obs_data_t *response_data, void *)
@@ -144,6 +146,20 @@ void vendor_toggle_active_channel(obs_data_t *, obs_data_t *response_data, void 
 	}
 	multireplay::g_dock->toggleActiveChannelBridge();
 	obs_data_set_bool(response_data, "success", true);
+}
+
+void vendor_step_list_selection(obs_data_t *request_data, obs_data_t *response_data, void *)
+{
+	auto &store = multireplay::EventStore::instance();
+	long long delta = obs_data_get_int(request_data, "delta");
+
+	int current = store.selectedList(); // 1..20
+	int count = 20; // kEventLists
+	int next = ((current - 1 + (int)delta) % count + count) % count + 1;
+	store.selectList(next);
+
+	obs_data_set_bool(response_data, "success", true);
+	obs_data_set_int(response_data, "activeList", next);
 }
 
 // Branch Output filters are persisted ENABLED in the scene collection and
@@ -351,10 +367,13 @@ void obs_module_post_load(void)
 						       vendor_get_playback_status, nullptr);
 		obs_websocket_vendor_register_request(g_vendor, "toggle_active_channel",
 						       vendor_toggle_active_channel, nullptr);
+		obs_websocket_vendor_register_request(g_vendor, "step_list_selection",
+						       vendor_step_list_selection, nullptr);
 		obs_log(LOG_INFO, "obs-websocket vendor \"multireplay\" registered "
 				  "(step_frames, set_speed, scrub_seconds, "
 				  "step_event_selection, select_event_by_id, "
-				  "get_playback_status, toggle_active_channel)");
+				  "get_playback_status, toggle_active_channel, "
+				  "step_list_selection)");
 	} else {
 		obs_log(LOG_WARNING, "obs-websocket not found — vendor requests "
 				     "unavailable (bridge falls back to hotkeys)");
