@@ -115,8 +115,6 @@ void vendor_select_event_by_id(obs_data_t *request_data, obs_data_t *response_da
 	multireplay::g_dock->selectEventByIdBridge((int)id);
 	obs_data_set_bool(response_data, "success", true);
 }
-}
-}
 
 namespace {
 // Branch Output filters are persisted ENABLED in the scene collection and
