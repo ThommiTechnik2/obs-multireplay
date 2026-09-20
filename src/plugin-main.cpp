@@ -42,9 +42,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 namespace {
 constexpr const char *kDockId = "obs-multireplay-dock";
-}
 
-namespace {
 // --- obs-websocket vendor requests --------------------------------------
 // Bridge entry points for an external controller (e.g. a USB panel driver)
 // that needs to move several frames or set an exact speed with ONE
@@ -116,7 +114,6 @@ void vendor_select_event_by_id(obs_data_t *request_data, obs_data_t *response_da
 	obs_data_set_bool(response_data, "success", true);
 }
 
-namespace {
 // Branch Output filters are persisted ENABLED in the scene collection and
 // start recording as soon as their source becomes active. The scene
 // collection loads AFTER obs_module_post_load, so the disarm must run on
