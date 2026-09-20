@@ -1076,8 +1076,17 @@ public:
 	}
 	void setSpeedPercentBridge(int pct) { applyReplaySpeed(pct); }
 	int currentSpeedPercentBridge() const { return speedPct_; }
-	int64_t markTimeNsBridge() const { return markTimeNs(); }
+		int64_t markTimeNsBridge() const { return markTimeNs(); }
 	std::vector<int> selectedEventIdsBridge() const { return selectedEventIds(); }
+
+	// EVS-Style: einfacher A/B-Toggle. Der gelinkte A+B-Modus bleibt bewusst
+	// nur ueber die UI erreichbar (siehe Absprache) -- linked wird hier immer
+	// auf false gesetzt.
+	void toggleActiveChannelBridge()
+	{
+		Which next = (activeChannel_ == Which::A) ? Which::B : Which::A;
+		setActiveChannel(next, /*linked*/ false);
+	}
 
 
 	// Fuer das Jog-Rad: EIN direkter Sprung um N Sekunden (scrubBySeconds),

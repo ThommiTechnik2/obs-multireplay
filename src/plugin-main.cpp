@@ -135,6 +135,17 @@ void vendor_get_playback_status(obs_data_t *, obs_data_t *response_data, void *)
 	obs_data_set_int(response_data, "eventId", eventId);
 }
 
+void vendor_toggle_active_channel(obs_data_t *, obs_data_t *response_data, void *)
+{
+	if (!multireplay::g_dock) {
+		obs_data_set_bool(response_data, "success", false);
+		obs_data_set_string(response_data, "error", "dock not ready");
+		return;
+	}
+	multireplay::g_dock->toggleActiveChannelBridge();
+	obs_data_set_bool(response_data, "success", true);
+}
+
 // Branch Output filters are persisted ENABLED in the scene collection and
 // start recording as soon as their source becomes active. The scene
 // collection loads AFTER obs_module_post_load, so the disarm must run on
@@ -338,10 +349,12 @@ void obs_module_post_load(void)
 						       vendor_select_event_by_id, nullptr);
 		obs_websocket_vendor_register_request(g_vendor, "get_playback_status",
 						       vendor_get_playback_status, nullptr);
+		obs_websocket_vendor_register_request(g_vendor, "toggle_active_channel",
+						       vendor_toggle_active_channel, nullptr);
 		obs_log(LOG_INFO, "obs-websocket vendor \"multireplay\" registered "
 				  "(step_frames, set_speed, scrub_seconds, "
 				  "step_event_selection, select_event_by_id, "
-				  "get_playback_status)");
+				  "get_playback_status, toggle_active_channel)");
 	} else {
 		obs_log(LOG_WARNING, "obs-websocket not found — vendor requests "
 				     "unavailable (bridge falls back to hotkeys)");
