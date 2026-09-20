@@ -114,6 +114,27 @@ void vendor_select_event_by_id(obs_data_t *request_data, obs_data_t *response_da
 	obs_data_set_bool(response_data, "success", true);
 }
 
+void vendor_get_playback_status(obs_data_t *request_data, obs_data_t *response_data, void *)
+{
+	if (!multireplay::g_dock) {
+		obs_data_set_bool(response_data, "success", false);
+		obs_data_set_string(response_data, "error", "dock not ready");
+		return;
+	}
+
+	int64_t cursorMs = multireplay::g_dock->markTimeNs() / 1000000;
+	int speedPercent = multireplay::g_dock->currentSpeedPercentBridge();
+
+	auto selected = multireplay::g_dock->selectedEventIds();
+	int eventId = !selected.empty() ? selected.front()
+		: multireplay::EventStore::instance().lastEventId();
+
+	obs_data_set_bool(response_data, "success", true);
+	obs_data_set_int(response_data, "cursorMs", cursorMs);
+	obs_data_set_int(response_data, "speedPercent", speedPercent);
+	obs_data_set_int(response_data, "eventId", eventId);
+}
+
 // Branch Output filters are persisted ENABLED in the scene collection and
 // start recording as soon as their source becomes active. The scene
 // collection loads AFTER obs_module_post_load, so the disarm must run on
@@ -315,9 +336,12 @@ void obs_module_post_load(void)
 						       vendor_step_event_selection, nullptr);
 		obs_websocket_vendor_register_request(g_vendor, "select_event_by_id",
 						       vendor_select_event_by_id, nullptr);
+		obs_websocket_vendor_register_request(g_vendor, "get_playback_status",
+						       vendor_get_playback_status, nullptr);
 		obs_log(LOG_INFO, "obs-websocket vendor \"multireplay\" registered "
 				  "(step_frames, set_speed, scrub_seconds, "
-				  "step_event_selection, select_event_by_id)");
+				  "step_event_selection, select_event_by_id, "
+				  "get_playback_status)");
 	} else {
 		obs_log(LOG_WARNING, "obs-websocket not found — vendor requests "
 				     "unavailable (bridge falls back to hotkeys)");

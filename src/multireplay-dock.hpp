@@ -1075,6 +1075,7 @@ public:
 		}
 	}
 	void setSpeedPercentBridge(int pct) { applyReplaySpeed(pct); }
+	int currentSpeedPercentBridge() const { return speedPct_; }
 
 
 	// Fuer das Jog-Rad: EIN direkter Sprung um N Sekunden (scrubBySeconds),
