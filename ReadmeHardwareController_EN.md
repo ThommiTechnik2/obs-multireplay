@@ -5,10 +5,10 @@ Integration of a JLCooper SloMo Mini replay controller with [obs-multireplay](ht
 ## Architecture
 
 ```
-JLCooper SloMo Mini  --(Raw USB, FTDI)-->  slomo-bridge.js (Node.js)  --(obs-websocket)-->  OBS + obs-multireplay
+JLCooper SloMo Mini  --(Raw USB, FTDI)-->  JLCooper-bridge.js (Node.js)  --(obs-websocket)-->  OBS + obs-multireplay
 ```
 
-The hardware integration runs entirely **outside** the OBS plugin: `obs-multireplay` itself contains no HID/USB code. Instead, a standalone Node.js bridge (`slomo-bridge.js`) talks directly to the controller over raw USB and drives OBS via obs-websocket vendor requests in the `"multireplay"` namespace.
+The hardware integration runs entirely **outside** the OBS plugin: `obs-multireplay` itself contains no HID/USB code. Instead, a standalone Node.js bridge (`JLCooper.js`) talks directly to the controller over raw USB and drives OBS via obs-websocket vendor requests in the `"multireplay"` namespace.
 
 **Why this separation?**
 - USB/HID access is significantly more convenient in Node.js than in C++ (no platform-specific driver headaches inside the plugin build)
@@ -102,10 +102,8 @@ Requirements:
 npm install usb obs-websocket-js
 ```
 
-Important: M|Replay (or any other program already using the device) must not be running at the same time — only one process can claim the USB interface exclusively.
-
 ```bash
-node slomo-bridge.js
+node JLCooper.js
 ```
 
 ## Open items / possible next steps
