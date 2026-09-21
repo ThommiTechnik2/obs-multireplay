@@ -7,7 +7,7 @@
 //   npm install usb obs-websocket-js
 //
 // Ausführen:
-//   node slomo-bridge.js
+//   node JLCooper-bridge.js
 //
 
 const { usb } = require('usb');
