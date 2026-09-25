@@ -37,131 +37,13 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "selftest.hpp"
 #include "branch-output-install.hpp"
 #include "updater.hpp"
-#include "dock-internal.hpp"  // g_dock — the live MultiReplayDock instance
-#include "obs-websocket-api.h" // vendored single header, no link dependency
+#include "remote-control.hpp"
 
 namespace {
 constexpr const char *kDockId = "obs-multireplay-dock";
-
-// --- obs-websocket vendor requests --------------------------------------
-// Bridge entry points for an external controller (e.g. a USB panel driver)
-// that needs to move several frames or set an exact speed with ONE
-// websocket round-trip, instead of firing many TriggerHotkeyByName calls in
-// a row — the latter floods OBS's hotkey dispatch at high event rates (see
-// the jog-wheel "wheel of death" this was written to fix).
-//
-// Request "step_frames", data: {"delta": <int>}  (positive = forward)
-// Request "set_speed",   data: {"percent": <int, 5..200>}
-obs_websocket_vendor g_vendor = nullptr;
-
-void vendor_step_frames(obs_data_t *request_data, obs_data_t *response_data, void *)
-{
-	if (!multireplay::g_dock) {
-		obs_data_set_bool(response_data, "success", false);
-		obs_data_set_string(response_data, "error", "dock not ready");
-		return;
-	}
-	long long delta = obs_data_get_int(request_data, "delta");
-	multireplay::g_dock->stepFramesBridge((int)delta);
-	obs_data_set_bool(response_data, "success", true);
 }
 
-void vendor_set_speed(obs_data_t *request_data, obs_data_t *response_data, void *)
-{
-	if (!multireplay::g_dock) {
-		obs_data_set_bool(response_data, "success", false);
-		obs_data_set_string(response_data, "error", "dock not ready");
-		return;
-	}
-	long long pct = obs_data_get_int(request_data, "percent");
-	multireplay::g_dock->setSpeedPercentBridge((int)pct);
-	obs_data_set_bool(response_data, "success", true);
-}
-
-void vendor_scrub_seconds(obs_data_t *request_data, obs_data_t *response_data, void *)
-{
-	if (!multireplay::g_dock) {
-		obs_data_set_bool(response_data, "success", false);
-		obs_data_set_string(response_data, "error", "dock not ready");
-		return;
-	}
-	double seconds = obs_data_get_double(request_data, "seconds");
-	multireplay::g_dock->scrubSecondsBridge(seconds);
-	obs_data_set_bool(response_data, "success", true);
-}
-
-void vendor_step_event_selection(obs_data_t *request_data, obs_data_t *response_data, void *)
-{
-	if (!multireplay::g_dock) {
-		obs_data_set_bool(response_data, "success", false);
-		obs_data_set_string(response_data, "error", "dock not ready");
-		return;
-	}
-	long long delta = obs_data_get_int(request_data, "delta");
-	multireplay::g_dock->stepEventSelectionBridge((int)delta);
-	obs_data_set_bool(response_data, "success", true);
-}
-
-void vendor_select_event_by_id(obs_data_t *request_data, obs_data_t *response_data, void *)
-{
-	if (!multireplay::g_dock) {
-		obs_data_set_bool(response_data, "success", false);
-		obs_data_set_string(response_data, "error", "dock not ready");
-		return;
-	}
-	long long id = obs_data_get_int(request_data, "id");
-	multireplay::g_dock->selectEventByIdBridge((int)id);
-	obs_data_set_bool(response_data, "success", true);
-}
-
-void vendor_get_playback_status(obs_data_t *, obs_data_t *response_data, void *)
-{
-	if (!multireplay::g_dock) {
-		obs_data_set_bool(response_data, "success", false);
-		obs_data_set_string(response_data, "error", "dock not ready");
-		return;
-	}
-
-	int64_t cursorMs = multireplay::g_dock->markTimeNsBridge() / 1000000;
-	int speedPercent = multireplay::g_dock->currentSpeedPercentBridge();
-
-	auto selected = multireplay::g_dock->selectedEventIdsBridge();
-	int eventId = !selected.empty() ? selected.front()
-		: multireplay::EventStore::instance().lastEventId();
-	int activeList = multireplay::EventStore::instance().selectedList();
-
-	obs_data_set_bool(response_data, "success", true);
-	obs_data_set_int(response_data, "cursorMs", cursorMs);
-	obs_data_set_int(response_data, "speedPercent", speedPercent);
-	obs_data_set_int(response_data, "eventId", eventId);
-	obs_data_set_int(response_data, "activeList", activeList);
-}
-
-void vendor_toggle_active_channel(obs_data_t *, obs_data_t *response_data, void *)
-{
-	if (!multireplay::g_dock) {
-		obs_data_set_bool(response_data, "success", false);
-		obs_data_set_string(response_data, "error", "dock not ready");
-		return;
-	}
-	multireplay::g_dock->toggleActiveChannelBridge();
-	obs_data_set_bool(response_data, "success", true);
-}
-
-void vendor_step_list_selection(obs_data_t *request_data, obs_data_t *response_data, void *)
-{
-	auto &store = multireplay::EventStore::instance();
-	long long delta = obs_data_get_int(request_data, "delta");
-
-	int current = store.selectedList(); // 1..20
-	int count = 20; // kEventLists
-	int next = ((current - 1 + (int)delta) % count + count) % count + 1;
-	store.selectList(next);
-
-	obs_data_set_bool(response_data, "success", true);
-	obs_data_set_int(response_data, "activeList", next);
-}
-
+namespace {
 // Branch Output filters are persisted ENABLED in the scene collection and
 // start recording as soon as their source becomes active. The scene
 // collection loads AFTER obs_module_post_load, so the disarm must run on
@@ -259,9 +141,12 @@ void onFrontendEvent(enum obs_frontend_event event, void *)
 		// followed by more work (the new collection has to be adopted), but
 		// an exit is not, and a tick between here and the clearing would take
 		// a fresh reference to the very sources we have just let go of.
-		if (event == OBS_FRONTEND_EVENT_EXIT)
+		if (event == OBS_FRONTEND_EVENT_EXIT) {
 			multireplay::MultiReplayDock::prepareForShutdown();
-		else
+			// A controller still sending requests would queue them
+			// to a UI thread that is about to stop turning.
+			multireplay::remote_control::stopAccepting();
+		} else
 			multireplay::MultiReplayDock::releasePreviewRefs();
 		for (int i = 0; i < multireplay::kChannels; i++) {
 			multireplay::ReplayChannel::instance((multireplay::Which)i)
@@ -348,36 +233,9 @@ void obs_module_post_load(void)
 		delete dock;
 	}
 
-	// Register the "multireplay" obs-websocket vendor. MUST happen from
-	// obs_module_post_load() (see obs-websocket-api.h) — obs-websocket
-	// itself may not be present, in which case this is a harmless no-op.
-	g_vendor = obs_websocket_register_vendor("multireplay");
-	if (g_vendor) {
-		obs_websocket_vendor_register_request(g_vendor, "step_frames",
-						       vendor_step_frames, nullptr);
-		obs_websocket_vendor_register_request(g_vendor, "set_speed",
-						       vendor_set_speed, nullptr);
-		obs_websocket_vendor_register_request(g_vendor, "scrub_seconds",
-						       vendor_scrub_seconds, nullptr);
-		obs_websocket_vendor_register_request(g_vendor, "step_event_selection",
-						       vendor_step_event_selection, nullptr);
-		obs_websocket_vendor_register_request(g_vendor, "select_event_by_id",
-						       vendor_select_event_by_id, nullptr);
-		obs_websocket_vendor_register_request(g_vendor, "get_playback_status",
-						       vendor_get_playback_status, nullptr);
-		obs_websocket_vendor_register_request(g_vendor, "toggle_active_channel",
-						       vendor_toggle_active_channel, nullptr);
-		obs_websocket_vendor_register_request(g_vendor, "step_list_selection",
-						       vendor_step_list_selection, nullptr);
-		obs_log(LOG_INFO, "obs-websocket vendor \"multireplay\" registered "
-				  "(step_frames, set_speed, scrub_seconds, "
-				  "step_event_selection, select_event_by_id, "
-				  "get_playback_status, toggle_active_channel, "
-				  "step_list_selection)");
-	} else {
-		obs_log(LOG_WARNING, "obs-websocket not found — vendor requests "
-				     "unavailable (bridge falls back to hotkeys)");
-	}
+	// External control for hardware controllers (tools/hardware-bridge).
+	// After the dock, which every request drives.
+	multireplay::remote_control::registerRequests();
 }
 
 // EVERY SUBSYSTEM THAT OWNS A THREAD IS STOPPED HERE, IN THIS ORDER.

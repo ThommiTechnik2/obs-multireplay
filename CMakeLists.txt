@@ -95,11 +95,9 @@ target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE
     src/plugin-main.cpp
-    # Vendored single-header obs-websocket vendor API (no link dependency) --
-    # lets an external controller call step_frames/set_speed in one
-    # round-trip instead of many TriggerHotkeyByName calls.
-    src/obs-websocket-api.h
     src/replay-core.cpp
+    # External control over obs-websocket (vendored header, no link dependency)
+    src/remote-control.cpp
     src/branch-output-control.cpp
     # Fetching and verifying the Branch Output INSTALLER, which is not an update
     # of ours: without that plugin this one cannot record at all, so a fresh
