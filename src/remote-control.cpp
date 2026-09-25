@@ -84,10 +84,8 @@ void onUiThread(obs_data_t *response, std::function<void(obs_data_t *)> fn)
 		return;
 	}
 	obs_data_apply(response, job->out);
-	if (!obs_data_has_user_value(response, "error"))
-		obs_data_set_bool(response, "success", true);
-	else
-		obs_data_set_bool(response, "success", false);
+	obs_data_set_bool(response, "success",
+			  !obs_data_has_user_value(response, "error"));
 }
 
 // --- The requests ------------------------------------------------------------
