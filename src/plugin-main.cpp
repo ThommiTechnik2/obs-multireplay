@@ -258,9 +258,12 @@ void obs_module_post_load(void)
 //   core   — hotkeys and recording state
 //   updater — a network thread that touches none of the above, and the Branch
 //            Output fetch beside it, which is the same kind of thread
+// External control goes first of all: obs-websocket's workers call into the
+// dock, and the dock is being removed on the very next line.
 void obs_module_unload(void)
 {
 	obs_frontend_remove_event_callback(onFrontendEvent, nullptr);
+	multireplay::remote_control::shutdown();
 	obs_frontend_remove_dock(kDockId);
 	// Detach from Branch Output's encoders before anything else tears down.
 	multireplay::PacketTap::instance().unload();

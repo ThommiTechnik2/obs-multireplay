@@ -218,14 +218,25 @@ void registerRequests()
 		registered);
 }
 
-// NOTHING IS UNREGISTERED AT UNLOAD, and that is deliberate. Modules unload in
-// reverse load order, so obs-websocket has already stopped its server — and
-// released the proc handler the vendored header caches — by the time our
-// obs_module_unload runs: calling into it there would use a dangling pointer.
-// What keeps a late request away from a closing panel is stopAccepting().
 void stopAccepting()
 {
 	g_accepting.store(false);
+}
+
+// UNREGISTERED HERE, WHILE obs-websocket IS STILL LOADED. OBS unloads modules in
+// the order it loaded them — alphabetical, so obs-multireplay before
+// obs-websocket (measured: our "plugin unloaded" line comes before its
+// "Shutting down...") — and its server is still running while we go. Left
+// registered, a request in that window would reach a module that has already
+// torn its panel down.
+void shutdown()
+{
+	stopAccepting();
+	if (!g_vendor)
+		return;
+	for (const Request &r : kRequests)
+		obs_websocket_vendor_unregister_request(g_vendor, r.name);
+	g_vendor = nullptr;
 }
 
 } // namespace multireplay::remote_control

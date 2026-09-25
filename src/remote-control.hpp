@@ -23,4 +23,7 @@ void registerRequests();
 // error instead of being queued to a UI thread that is about to stop turning.
 void stopAccepting();
 
+// From obs_module_unload: stops accepting and unregisters every request.
+void shutdown();
+
 } // namespace multireplay::remote_control
